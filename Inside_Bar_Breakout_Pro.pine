@@ -1,0 +1,529 @@
+// ============================================================
+// INSIDE BAR BREAKOUT PRO — Multi-Timeframe System (v6)
+// ============================================================
+// Features:
+// 1. Inside Bar (IB) Detection & Mother Bar Range Tracking
+// 2. High Probability Breakout Engine (Filters out Fakeouts)
+//    - Real Candle Body Close Confirmation (No Wick-only Fakeouts)
+//    - Volume Expansion Filter (>1.2x 20 MA)
+//    - Strong Candle Body Ratio (>=40%)
+//    - Trend Alignment & ADX Filter (>=20)
+// 3. Multi-Timeframe Analysis (15m, 1H, 1D, 1W, 1M)
+// 4. Interactive Labels with Tooltips (Entry, SL, TP1, TP2, TP3)
+// 5. Dynamic Trade Zone Box (Entry, SL, TP1, TP2, TP3)
+// 6. Professional MTF Dashboard Status Table
+// 7. Complete Real-Time Alerts (Buy, Sell, TP, SL)
+// ============================================================
+//@version=6
+indicator("Inside Bar Breakout Pro", shorttitle="IB BO PRO", overlay=true,
+          max_bars_back=300, max_lines_count=100, max_labels_count=100)
+
+// ══════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════
+grp_ib     = "══ INSIDE BAR & FAKEOUT FILTERS ══"
+filter_vol = input.bool(true,  "Volume Expansion Filter (>1.2× avg)", group=grp_ib)
+vol_mult   = input.float(1.2,  "Volume Multiplier",                   group=grp_ib, minval=1.0, step=0.1)
+filter_adx = input.bool(true,  "ADX Trend Filter (≥20)",              group=grp_ib)
+filter_body= input.bool(true,  "Strong Breakout Body (≥40% of range)",group=grp_ib)
+filter_ema = input.bool(true,  "EMA Trend Filter (21 > 50 EMA)",      group=grp_ib)
+
+grp_tp     = "══ SL & TARGET SETTINGS ══"
+sl_mode    = input.string("Mother Bar Boundary", "Stop Loss Source",
+             options=["Mother Bar Boundary", "Breakout Candle Low/High", "ATR Multiplier"], group=grp_tp)
+sl_mult    = input.float(1.5,  "ATR SL Multiplier",                   group=grp_tp, minval=0.5, step=0.1)
+rr1        = input.float(1.5,  "TP1 Risk:Reward",                     group=grp_tp, minval=0.5, step=0.1)
+rr2        = input.float(2.5,  "TP2 Risk:Reward",                     group=grp_tp, minval=0.5, step=0.1)
+rr3        = input.float(4.0,  "TP3 Risk:Reward",                     group=grp_tp, minval=0.5, step=0.1)
+show_zones = input.bool(true,  "Show Active Trade Box",               group=grp_tp)
+show_labels= input.bool(true,  "Show Breakout Signal Labels",         group=grp_tp)
+zone_ext   = input.int(15,     "Extend Trade Box (bars)",             group=grp_tp, minval=5, maxval=100)
+
+grp_vis    = "══ VISUALS & DASHBOARD ══"
+color_ib   = input.color(color.new(color.yellow, 0), "Inside Bar Color", group=grp_vis)
+show_ib_bg = input.bool(true,  "Highlight Inside Bars on Chart",      group=grp_vis)
+show_mtf   = input.bool(true,  "Show MTF Dashboard Table",            group=grp_vis)
+mtf_pos    = input.string("Top Right", "Table Position",
+             options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=grp_vis)
+
+grp_al     = "══ ALERTS ══"
+al_buy     = input.bool(true, "Alert BUY Breakout",  group=grp_al)
+al_sell    = input.bool(true, "Alert SELL Breakout", group=grp_al)
+al_sl      = input.bool(true, "Alert SL Hit",        group=grp_al)
+al_tp1     = input.bool(true, "Alert TP1 Hit",       group=grp_al)
+
+// ══════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ══════════════════════════════════════════════════════════
+_fmt(v)           => str.tostring(math.round(v * 10) / 10)
+_dir_col(d)       => d == "BULL BO" ? color.lime : d == "BEAR BO" ? color.red : d == "INSIDE" ? color.yellow : color.gray
+_trend_str(u, dn) => u ? "BULL" : dn ? "BEAR" : "NEUT"
+_trend_col(u, dn) => u ? color.lime : dn ? color.red : color.gray
+
+// ══════════════════════════════════════════════════════════
+// CORE INSIDE BAR & BREAKOUT LOGIC FUNCTION
+// Returns: [is_ib, buy_bo, sell_bo, status, entry, sl, tp1, tp2, tp3, adx, ema_bull]
+// ══════════════════════════════════════════════════════════
+f_ib_engine(_sl_mode, _slm, _rr1, _rr2, _rr3, _f_vol, _vmult, _f_adx, _f_body, _f_ema) =>
+    _atr   = ta.atr(14)
+    _e1    = ta.ema(close, 21)
+    _e2    = ta.ema(close, 50)
+    _vm    = ta.sma(volume, 20)
+    [_dp, _dm, _adxv] = ta.dmi(14, 14)
+
+    _ema_bull = _e1 > _e2
+    _ema_bear = _e1 < _e2
+    _adx_ok   = _adxv >= 20
+    _vol_ok   = volume > _vm * _vmult
+
+    // Inside Bar Condition (current bar high/low inside previous bar high/low)
+    _is_ib = (high <= high[1]) and (low >= low[1])
+
+    // Mother Bar high and low tracking
+    var float _m_high = na
+    var float _m_low  = na
+    var bool  _in_ib  = false
+
+    if _is_ib and not _in_ib
+        _m_high := high[1]
+        _m_low  := low[1]
+        _in_ib  := true
+    else if _in_ib and (high <= _m_high) and (low >= _m_low)
+        // Multiple inside bar consolidation — keep mother bar boundaries
+        _in_ib := true
+    else
+        // Reset when price breaks outside mother bar boundaries
+        if not _is_ib and not na(_m_high) and (close > _m_high or close < _m_low)
+            _in_ib := false
+
+    // Candle Body Ratio Filter
+    _c_range = high - low
+    _body_ratio = _c_range > 0 ? math.abs(close - open) / _c_range : 0.0
+    _body_ok = _body_ratio >= 0.40
+
+    // High Probability Breakout Signals (Body Close Confirmation Outside Mother Bar)
+    _raw_buy_bo  = _in_ib[1] and (close > _m_high[1]) and (close[1] <= _m_high[1])
+    _raw_sell_bo = _in_ib[1] and (close < _m_low[1])  and (close[1] >= _m_low[1])
+
+    // Apply Filters (Fakeout Protection)
+    _buy_bo  = _raw_buy_bo  and (_f_ema ? _ema_bull : true) and (_f_adx ? _adx_ok : true) and (_f_vol ? _vol_ok : true) and (_f_body ? _body_ok : true)
+    _sell_bo = _raw_sell_bo and (_f_ema ? _ema_bear : true) and (_f_adx ? _adx_ok : true) and (_f_vol ? _vol_ok : true) and (_f_body ? _body_ok : true)
+
+    // Calculate Entry, Stop Loss & Targets
+    _sl_dist_b = _sl_mode == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+                 _sl_mode == "ATR Multiplier" ? _slm * _atr :
+                 math.max(close - _m_low[1], _atr * 0.5)
+
+    _sl_dist_s = _sl_mode == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+                 _sl_mode == "ATR Multiplier" ? _slm * _atr :
+                 math.max(_m_high[1] - close, _atr * 0.5)
+
+    var string _st = "NEUTRAL"
+    var float  _en = na
+    var float  _sl = na
+    var float  _t1 = na
+    var float  _t2 = na
+    var float  _t3 = na
+
+    if _buy_bo
+        _st := "BULL BO"
+        _en := close
+        _sl := close - _sl_dist_b
+        _t1 := close + _rr1 * _sl_dist_b
+        _t2 := close + _rr2 * _sl_dist_b
+        _t3 := close + _rr3 * _sl_dist_b
+    if _sell_bo
+        _st := "BEAR BO"
+        _en := close
+        _sl := close + _sl_dist_s
+        _t1 := close - _rr1 * _sl_dist_s
+        _t2 := close - _rr2 * _sl_dist_s
+        _t3 := close - _rr3 * _sl_dist_s
+
+    if _is_ib and not _buy_bo and not _sell_bo
+        _st := "INSIDE"
+
+    [_is_ib, _buy_bo, _sell_bo, _st, _en, _sl, _t1, _t2, _t3, _adxv, _ema_bull]
+
+// ══════════════════════════════════════════════════════════
+// MULTI-TIMEFRAME ANALYSIS (15m, 1H, 1D, 1W, 1M)
+// ══════════════════════════════════════════════════════════
+[ib15, b15, s15, st15, en15, sl15, t1_15, t2_15, t3_15, adx15, up15] = request.security(
+    syminfo.tickerid, "15", f_ib_engine(sl_mode, sl_mult, rr1, rr2, rr3, filter_vol, vol_mult, filter_adx, filter_body, filter_ema), lookahead=barmerge.lookahead_off)
+
+[ib1h, b1h, s1h, st1h, en1h, sl1h, t1_1h, t2_1h, t3_1h, adx1h, up1h] = request.security(
+    syminfo.tickerid, "60", f_ib_engine(sl_mode, sl_mult, rr1, rr2, rr3, filter_vol, vol_mult, filter_adx, filter_body, filter_ema), lookahead=barmerge.lookahead_off)
+
+[ib1d, b1d, s1d, st1d, en1d, sl1d, t1_1d, t2_1d, t3_1d, adx1d, up1d] = request.security(
+    syminfo.tickerid, "D",  f_ib_engine(sl_mode, sl_mult, rr1, rr2, rr3, filter_vol, vol_mult, filter_adx, filter_body, filter_ema), lookahead=barmerge.lookahead_off)
+
+[ib1w, b1w, s1w, st1w, en1w, sl1w, t1_1w, t2_1w, t3_1w, adx1w, up1w] = request.security(
+    syminfo.tickerid, "W",  f_ib_engine(sl_mode, sl_mult, rr1, rr2, rr3, filter_vol, vol_mult, filter_adx, filter_body, filter_ema), lookahead=barmerge.lookahead_off)
+
+[ib1m, b1m, s1m, st1m, en1m, sl1m, t1_1m, t2_1m, t3_1m, adx1m, up1m] = request.security(
+    syminfo.tickerid, "M",  f_ib_engine(sl_mode, sl_mult, rr1, rr2, rr3, filter_vol, vol_mult, filter_adx, filter_body, filter_ema), lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════
+// CURRENT CHART TIMEFRAME EXECUTION
+// ══════════════════════════════════════════════════════════
+_atr   = ta.atr(14)
+_e1    = ta.ema(close, 21)
+_e2    = ta.ema(close, 50)
+_vm    = ta.sma(volume, 20)
+[_dp, _dm, _adx] = ta.dmi(14, 14)
+
+_ema_bull = _e1 > _e2
+_ema_bear = _e1 < _e2
+_adx_ok   = _adx >= 20
+_vol_ok   = volume > _vm * vol_mult
+
+// Highlight Inside Bars on Chart
+_cur_ib = (high <= high[1]) and (low >= low[1])
+barcolor(show_ib_bg and _cur_ib ? color_ib : na)
+
+// Mother Bar Tracking for current TF
+var float _m_high = na
+var float _m_low  = na
+var bool  _in_ib  = false
+
+if _cur_ib and not _in_ib
+    _m_high := high[1]
+    _m_low  := low[1]
+    _in_ib  := true
+else if _in_ib and (high <= _m_high) and (low >= _m_low)
+    _in_ib := true
+else
+    if not _cur_ib and not na(_m_high) and (close > _m_high or close < _m_low)
+        _in_ib := false
+
+// Breakout Signals with Fakeout Filter
+_c_range = high - low
+_body_ratio = _c_range > 0 ? math.abs(close - open) / _c_range : 0.0
+_body_ok = _body_ratio >= 0.40
+
+_raw_buy_bo  = _in_ib[1] and (close > _m_high[1]) and (close[1] <= _m_high[1])
+_raw_sell_bo = _in_ib[1] and (close < _m_low[1])  and (close[1] >= _m_low[1])
+
+_buy_sig  = _raw_buy_bo  and (filter_ema ? _ema_bull : true) and (filter_adx ? _adx_ok : true) and (filter_vol ? _vol_ok : true) and (filter_body ? _body_ok : true)
+_sell_sig = _raw_sell_bo and (filter_ema ? _ema_bear : true) and (filter_adx ? _adx_ok : true) and (filter_vol ? _vol_ok : true) and (filter_body ? _body_ok : true)
+
+// Fresh Signal Recency Tracker
+var int _b_since_buy  = 999
+var int _b_since_sell = 999
+
+if _buy_sig
+    _b_since_buy := 0
+else
+    _b_since_buy := _b_since_buy + 1
+
+if _sell_sig
+    _b_since_sell := 0
+else
+    _b_since_sell := _b_since_sell + 1
+
+_is_fresh_buy  = _b_since_buy <= 5
+_is_fresh_sell = _b_since_sell <= 5
+
+// ── Interactive Signal Labels with Tooltips ───────────────
+if show_labels and _buy_sig
+    _sl_dist = sl_mode == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+               sl_mode == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(close - _m_low[1], _atr * 0.5)
+    _sl_val = close - _sl_dist
+    _t1_val = close + rr1 * _sl_dist
+    _t2_val = close + rr2 * _sl_dist
+    _t3_val = close + rr3 * _sl_dist
+    _tip_b = "🔥 FRESH INSIDE BAR BUY (" + timeframe.period + ")\n" +
+             "────────────────────────\n" +
+             "Entry Price: " + _fmt(close) + "\n" +
+             "Stop Loss: "   + _fmt(_sl_val) + "\n" +
+             "TP1 (1.5R): "  + _fmt(_t1_val) + "\n" +
+             "TP2 (2.5R): "  + _fmt(_t2_val) + "\n" +
+             "TP3 (4.0R): "  + _fmt(_t3_val)
+    label.new(bar_index, low, "🔥 IB BUY", style=label.style_label_up,
+              color=color.lime, textcolor=color.black, size=size.normal,
+              tooltip=_tip_b)
+
+if show_labels and _sell_sig
+    _sl_dist = sl_mode == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+               sl_mode == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(_m_high[1] - close, _atr * 0.5)
+    _sl_val = close + _sl_dist
+    _t1_val = close - rr1 * _sl_dist
+    _t2_val = close - rr2 * _sl_dist
+    _t3_val = close - rr3 * _sl_dist
+    _tip_s = "🔥 FRESH INSIDE BAR SELL (" + timeframe.period + ")\n" +
+             "────────────────────────\n" +
+             "Entry Price: " + _fmt(close) + "\n" +
+             "Stop Loss: "   + _fmt(_sl_val) + "\n" +
+             "TP1 (1.5R): "  + _fmt(_t1_val) + "\n" +
+             "TP2 (2.5R): "  + _fmt(_t2_val) + "\n" +
+             "TP3 (4.0R): "  + _fmt(_t3_val)
+    label.new(bar_index, high, "🔥 IB SELL", style=label.style_label_down,
+              color=color.red, textcolor=color.white, size=size.normal,
+              tooltip=_tip_s)
+
+// ══════════════════════════════════════════════════════════
+// TRADE MANAGER (Zone Lines & Box)
+// ══════════════════════════════════════════════════════════
+var string _tdir   = "NONE"
+var float  _tent   = na
+var float  _tsl    = na
+var float  _ttp1   = na
+var float  _ttp2   = na
+var float  _ttp3   = na
+var bool   _tp1hit = false
+var bool   _tp2hit = false
+var bool   _tp3hit = false
+var bool   _slhit  = false
+
+var line _zl_en = na
+var line _zl_sl = na
+var line _zl_t1 = na
+var line _zl_t2 = na
+var line _zl_t3 = na
+var linefill _zf_sl = na
+var linefill _zf_t1 = na
+var linefill _zf_t2 = na
+var linefill _zf_t3 = na
+var label _lb_en = na
+var label _lb_sl = na
+var label _lb_t1 = na
+var label _lb_t2 = na
+var label _lb_t3 = na
+
+_del_zones() =>
+    line.delete(_zl_en)
+    line.delete(_zl_sl)
+    line.delete(_zl_t1)
+    line.delete(_zl_t2)
+    line.delete(_zl_t3)
+    linefill.delete(_zf_sl)
+    linefill.delete(_zf_t1)
+    linefill.delete(_zf_t2)
+    linefill.delete(_zf_t3)
+    label.delete(_lb_en)
+    label.delete(_lb_sl)
+    label.delete(_lb_t1)
+    label.delete(_lb_t2)
+    label.delete(_lb_t3)
+
+if _buy_sig
+    _tdir   := "LONG"
+    _tent   := close
+    _sl_d    = sl_mode == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+               sl_mode == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(close - _m_low[1], _atr * 0.5)
+    _tsl    := close - _sl_d
+    _ttp1   := close + rr1 * _sl_d
+    _ttp2   := close + rr2 * _sl_d
+    _ttp3   := close + rr3 * _sl_d
+    _tp1hit := false
+    _tp2hit := false
+    _tp3hit := false
+    _slhit  := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close, _x2, close, color=color.white, width=2)
+        _zl_sl := line.new(bar_index, _tsl,  _x2, _tsl,  color=color.red,   width=2)
+        _zl_t1 := line.new(bar_index, _ttp1, _x2, _ttp1, color=color.new(color.yellow, 20), width=1)
+        _zl_t2 := line.new(bar_index, _ttp2, _x2, _ttp2, color=color.new(color.lime,   20), width=2)
+        _zl_t3 := line.new(bar_index, _ttp3, _x2, _ttp3, color=color.new(color.teal,   20), width=2)
+        _zf_sl := linefill.new(_zl_sl, _zl_en, color.new(color.red,   96))
+        _zf_t1 := linefill.new(_zl_en, _zl_t1, color.new(color.lime,  97))
+        _zf_t2 := linefill.new(_zl_t1, _zl_t2, color.new(color.green, 96))
+        _zf_t3 := linefill.new(_zl_t2, _zl_t3, color.new(color.teal,  96))
+        _lb_en := label.new(_lx, close, "ENTRY " + _fmt(close), style=label.style_label_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small)
+        _lb_sl := label.new(_lx, _tsl,  "SL "    + _fmt(_tsl),  style=label.style_label_left, color=color.new(color.red,  20), textcolor=color.white, size=size.small)
+        _lb_t1 := label.new(_lx, _ttp1, "TP1 "   + _fmt(_ttp1), style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small)
+        _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
+        _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
+
+if _sell_sig
+    _tdir   := "SHORT"
+    _tent   := close
+    _sl_d    = sl_mode == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+               sl_mode == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(_m_high[1] - close, _atr * 0.5)
+    _tsl    := close + _sl_d
+    _ttp1   := close - rr1 * _sl_d
+    _ttp2   := close - rr2 * _sl_d
+    _ttp3   := close - rr3 * _sl_d
+    _tp1hit := false
+    _tp2hit := false
+    _tp3hit := false
+    _slhit  := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close, _x2, close, color=color.white, width=2)
+        _zl_sl := line.new(bar_index, _tsl,  _x2, _tsl,  color=color.red,   width=2)
+        _zl_t1 := line.new(bar_index, _ttp1, _x2, _ttp1, color=color.new(color.yellow, 20), width=1)
+        _zl_t2 := line.new(bar_index, _ttp2, _x2, _ttp2, color=color.new(color.lime,   20), width=2)
+        _zl_t3 := line.new(bar_index, _ttp3, _x2, _ttp3, color=color.new(color.teal,   20), width=2)
+        _zf_sl := linefill.new(_zl_en, _zl_sl, color.new(color.red,   96))
+        _zf_t1 := linefill.new(_zl_t1, _zl_en, color.new(color.lime,  97))
+        _zf_t2 := linefill.new(_zl_t2, _zl_t1, color.new(color.green, 96))
+        _zf_t3 := linefill.new(_zl_t3, _zl_t2, color.new(color.teal,  96))
+        _lb_en := label.new(_lx, close, "ENTRY " + _fmt(close), style=label.style_label_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small)
+        _lb_sl := label.new(_lx, _tsl,  "SL "    + _fmt(_tsl),  style=label.style_label_left, color=color.new(color.red,  20), textcolor=color.white, size=size.small)
+        _lb_t1 := label.new(_lx, _ttp1, "TP1 "   + _fmt(_ttp1), style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small)
+        _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
+        _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
+
+if _tdir != "NONE"
+    if show_zones and not na(_zl_en) and barstate.islast
+        _nx = bar_index + zone_ext
+        line.set_x2(_zl_en, _nx)
+        line.set_x2(_zl_sl, _nx)
+        line.set_x2(_zl_t1, _nx)
+        line.set_x2(_zl_t2, _nx)
+        line.set_x2(_zl_t3, _nx)
+        if not na(_lb_en)
+            label.set_x(_lb_en, _nx + 1)
+            label.set_x(_lb_sl, _nx + 1)
+            label.set_x(_lb_t1, _nx + 1)
+            label.set_x(_lb_t2, _nx + 1)
+            label.set_x(_lb_t3, _nx + 1)
+    if _tdir == "LONG"
+        if not _tp1hit and high >= _ttp1
+            _tp1hit := true
+        if not _tp2hit and high >= _ttp2
+            _tp2hit := true
+        if not _tp3hit and high >= _ttp3
+            _tp3hit := true
+        if not _slhit and low <= _tsl
+            _slhit := true
+        if _ema_bear or low <= _tsl or high >= _ttp3
+            _del_zones()
+            _tdir := "NONE"
+
+    if _tdir == "SHORT"
+        if not _tp1hit and low <= _ttp1
+            _tp1hit := true
+        if not _tp2hit and low <= _ttp2
+            _tp2hit := true
+        if not _tp3hit and low <= _ttp3
+            _tp3hit := true
+        if not _slhit and high >= _tsl
+            _slhit := true
+        if _ema_bull or high >= _tsl or low <= _ttp3
+            _del_zones()
+            _tdir := "NONE"
+
+// ══════════════════════════════════════════════════════════
+// MTF DASHBOARD TABLE (15m, 1H, 1D, 1W, 1M)
+// ══════════════════════════════════════════════════════════
+_tbl_pos = mtf_pos == "Top Right" ? position.top_right : mtf_pos == "Top Left" ? position.top_left : mtf_pos == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+var table _tb = table.new(_tbl_pos, 6, 10,
+    bgcolor=color.new(color.black, 75),
+    border_color=color.new(color.gray, 50), border_width=1,
+    frame_color=color.new(color.gray,  30), frame_width=1)
+
+_row(r, lbl, v15, v1h, v1d, v1w, v1m, c15, c1h, c1d, c1w, c1m) =>
+    table.cell(_tb, 0, r, lbl, text_color=color.gray, text_size=size.small, bgcolor=color.new(color.black, 80))
+    table.cell(_tb, 1, r, v15, text_color=c15,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 2, r, v1h, text_color=c1h,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 3, r, v1d, text_color=c1d,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 4, r, v1w, text_color=c1w,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 5, r, v1m, text_color=c1m,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+
+if barstate.islast and show_mtf
+    _cur_trend  = _trend_str(_ema_bull, _ema_bear)
+    _cur_trcol  = _trend_col(_ema_bull, _ema_bear)
+    _cur_dir    = _tdir != "NONE" ? _tdir : _cur_ib ? "INSIDE" : "NEUTRAL"
+    _cur_adx    = math.round(_adx)
+    _cur_entry  = _tdir != "NONE" ? _fmt(_tent) : "---"
+    _cur_sl     = _tdir != "NONE" ? _fmt(_tsl)  : "---"
+    _cur_tp1    = _tdir != "NONE" ? _fmt(_ttp1) : "---"
+    _cur_tp2    = _tdir != "NONE" ? _fmt(_ttp2) : "---"
+    _cur_tp3    = _tdir != "NONE" ? _fmt(_ttp3) : "---"
+    _cur_newsig = _buy_sig ? "🔥 BUY (LIVE)" : _is_fresh_buy ? "🔥 BUY (" + str.tostring(_b_since_buy) + "b)" : _sell_sig ? "🔥 SELL (LIVE)" : _is_fresh_sell ? "🔥 SELL (" + str.tostring(_b_since_sell) + "b)" : "-"
+    _cur_sigcol = (_buy_sig or _is_fresh_buy) ? color.lime : (_sell_sig or _is_fresh_sell) ? color.red : color.gray
+
+    // Table Header
+    table.cell(_tb, 0, 0, "IB PRO",  text_color=color.white,                 text_size=size.small, bgcolor=color.new(color.navy,10), text_halign=text.align_center)
+    table.cell(_tb, 1, 0, "15m",     text_color=color.new(color.aqua,   10), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 2, 0, "1H",      text_color=color.new(color.purple, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 3, 0, "1D",      text_color=color.new(color.orange, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 4, 0, "1W",      text_color=color.new(color.yellow, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 5, 0, "1M",      text_color=color.new(color.fuchsia,20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+
+    _row(1, "TREND",
+        _trend_str(up15, not up15), _trend_str(up1h, not up1h), _trend_str(up1d, not up1d), _trend_str(up1w, not up1w), _trend_str(up1m, not up1m),
+        _trend_col(up15, not up15), _trend_col(up1h, not up1h), _trend_col(up1d, not up1d), _trend_col(up1w, not up1w), _trend_col(up1m, not up1m))
+
+    _row(2, "STATUS",
+        st15, st1h, st1d, st1w, st1m,
+        _dir_col(st15), _dir_col(st1h), _dir_col(st1d), _dir_col(st1w), _dir_col(st1m))
+
+    _row(3, "ADX",
+        str.tostring(math.round(adx15)), str.tostring(math.round(adx1h)),
+        str.tostring(math.round(adx1d)), str.tostring(math.round(adx1w)), str.tostring(math.round(adx1m)),
+        adx15 >= 20 ? color.lime : color.orange, adx1h >= 20 ? color.lime : color.orange,
+        adx1d >= 20 ? color.lime : color.orange, adx1w >= 20 ? color.lime : color.orange, adx1m >= 20 ? color.lime : color.orange)
+
+    _row(4, "ENTRY",
+        st15 != "NEUTRAL" ? _fmt(en15) : "---", st1h != "NEUTRAL" ? _fmt(en1h) : "---",
+        st1d != "NEUTRAL" ? _fmt(en1d) : "---", st1w != "NEUTRAL" ? _fmt(en1w) : "---", st1m != "NEUTRAL" ? _fmt(en1m) : "---",
+        color.white, color.white, color.white, color.white, color.white)
+
+    _row(5, "SL",
+        st15 != "NEUTRAL" ? _fmt(sl15) : "---", st1h != "NEUTRAL" ? _fmt(sl1h) : "---",
+        st1d != "NEUTRAL" ? _fmt(sl1d) : "---", st1w != "NEUTRAL" ? _fmt(sl1w) : "---", st1m != "NEUTRAL" ? _fmt(sl1m) : "---",
+        color.red, color.red, color.red, color.red, color.red)
+
+    _row(6, "TP1",
+        st15 != "NEUTRAL" ? _fmt(t1_15) : "---", st1h != "NEUTRAL" ? _fmt(t1_1h) : "---",
+        st1d != "NEUTRAL" ? _fmt(t1_1d) : "---", st1w != "NEUTRAL" ? _fmt(t1_1w) : "---", st1m != "NEUTRAL" ? _fmt(t1_1m) : "---",
+        color.yellow, color.yellow, color.yellow, color.yellow, color.yellow)
+
+    _row(7, "TP2",
+        st15 != "NEUTRAL" ? _fmt(t2_15) : "---", st1h != "NEUTRAL" ? _fmt(t2_1h) : "---",
+        st1d != "NEUTRAL" ? _fmt(t2_1d) : "---", st1w != "NEUTRAL" ? _fmt(t2_1w) : "---", st1m != "NEUTRAL" ? _fmt(t2_1m) : "---",
+        color.lime, color.lime, color.lime, color.lime, color.lime)
+
+    _row(8, "TP3",
+        st15 != "NEUTRAL" ? _fmt(t3_15) : "---", st1h != "NEUTRAL" ? _fmt(t3_1h) : "---",
+        st1d != "NEUTRAL" ? _fmt(t3_1d) : "---", st1w != "NEUTRAL" ? _fmt(t3_1w) : "---", st1m != "NEUTRAL" ? _fmt(t3_1m) : "---",
+        color.teal, color.teal, color.teal, color.teal, color.teal)
+
+    _row(9, "FRESH SIG",
+        _cur_newsig, b1h ? "BUY" : s1h ? "SELL" : "-",
+        b1d ? "BUY" : s1d ? "SELL" : "-", b1w ? "BUY" : s1w ? "SELL" : "-", b1m ? "BUY" : s1m ? "SELL" : "-",
+        _cur_sigcol,
+        b1h ? color.lime : s1h ? color.red : color.gray,
+        b1d ? color.lime : s1d ? color.red : color.gray,
+        b1w ? color.lime : s1w ? color.red : color.gray,
+        b1m ? color.lime : s1m ? color.red : color.gray)
+
+// ══════════════════════════════════════════════════════════
+// REAL-TIME ALERTS
+// ══════════════════════════════════════════════════════════
+var bool _prev_tp1 = false
+var bool _prev_sl  = false
+_tp1_edge = _tp1hit and not _prev_tp1
+_sl_edge  = _slhit  and not _prev_sl
+_prev_tp1 := _tp1hit
+_prev_sl  := _slhit
+
+if al_buy and _buy_sig
+    alert("IB BUY BREAKOUT | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
+if al_sell and _sell_sig
+    alert("IB SELL BREAKOUT | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
+if al_tp1 and _tp1_edge
+    alert("IB TP1 HIT | " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+if al_sl and _sl_edge
+    alert("IB SL HIT | " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+
+alertcondition(_buy_sig,  "IB BUY Breakout",  "Inside Bar BUY Breakout on {{ticker}}")
+alertcondition(_sell_sig, "IB SELL Breakout", "Inside Bar SELL Breakout on {{ticker}}")
+alertcondition(_tp1_edge, "IB TP1 Hit",       "Inside Bar TP1 Hit on {{ticker}}")
+alertcondition(_sl_edge,  "IB SL Hit",        "Inside Bar SL Hit on {{ticker}}")
+// ══════════════════════════════════════════════════════════
+// END INSIDE BAR BREAKOUT PRO
+// ══════════════════════════════════════════════════════════

@@ -152,9 +152,9 @@ plotshape(w_bo, "Weekly BO",
 // Both breakouts simultaneously (rare, strong signal)
 _both_bo = d_bo and w_bo
 plotshape(_both_bo, "Daily+Weekly BO",
-          shape.star, location.belowbar,
+          shape.diamond, location.belowbar,
           color.new(color.fuchsia, 0),
-          textcolor=color.white, text="D+W BO!",
+          textcolor=color.white, text="★ D+W BO!",
           size=size.huge)
 
 // ── Candle highlight on breakout ────────────────────────

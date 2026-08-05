@@ -1,0 +1,525 @@
+// ============================================================
+// DSR PRO V9 — Multi-Timeframe Professional Trading System
+// ============================================================
+//@version=6
+indicator("DSR PRO V9", shorttitle="DSR PRO V9", overlay=true,
+          max_bars_back=500, max_lines_count=100, max_labels_count=100)
+
+// ══════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════
+grp_sig    = "══ SIGNAL ENGINE ══"
+sig_mode   = input.string("EMA + MACD + RSI", "Signal Mode",
+             options=["EMA + MACD + RSI", "EMA + RSI Only", "EMA Only"], group=grp_sig)
+adx_filter = input.bool(true,  "ADX Trend Filter (≥20)",           group=grp_sig)
+vol_filter = input.bool(false, "Volume Filter (1.2× avg)",         group=grp_sig)
+vol_len    = input.int(20,     "Volume MA Length",                  group=grp_sig, minval=5)
+
+grp_ema    = "══ EMAs ══"
+ema1_len   = input.int(9,   "EMA Fast",   group=grp_ema, minval=1)
+ema2_len   = input.int(21,  "EMA Mid",    group=grp_ema, minval=1)
+ema3_len   = input.int(50,  "EMA Slow",   group=grp_ema, minval=1)
+ema4_len   = input.int(200, "EMA Trend",  group=grp_ema, minval=1)
+show_emas  = input.bool(true,  "Show EMAs",    group=grp_ema)
+show_vwap  = input.bool(true,  "Show VWAP",    group=grp_ema)
+show_sr    = input.bool(true,  "Show S/R Levels", group=grp_ema)
+
+grp_tp     = "══ SL / TARGETS ══"
+sl_mult    = input.float(1.5, "SL ATR Multiplier",  group=grp_tp, minval=0.5, step=0.1)
+rr1        = input.float(1.5, "TP1 R:R",            group=grp_tp, minval=0.5, step=0.1)
+rr2        = input.float(2.5, "TP2 R:R",            group=grp_tp, minval=0.5, step=0.1)
+rr3        = input.float(4.0, "TP3 R:R",            group=grp_tp, minval=0.5, step=0.1)
+show_zones = input.bool(true, "Show Entry/Exit Zones", group=grp_tp)
+zone_ext   = input.int(30,   "Extend Zones (bars)",  group=grp_tp, minval=5,  maxval=300)
+trail_be   = input.bool(true, "Trail SL to B.E. after TP1", group=grp_tp)
+
+grp_mtf    = "══ MTF DASHBOARD ══"
+show_mtf   = input.bool(true, "Show MTF Table",       group=grp_mtf)
+mtf_pos    = input.string("Top Right", "Table Position",
+             options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=grp_mtf)
+// HTF lines OFF by default — they clutter the chart
+show_htf_lines = input.bool(false, "Show HTF Level Lines (clutters chart)", group=grp_mtf)
+
+grp_al     = "══ ALERTS ══"
+al_buy     = input.bool(true, "Alert BUY",    group=grp_al)
+al_sell    = input.bool(true, "Alert SELL",   group=grp_al)
+al_sl      = input.bool(true, "Alert SL Hit", group=grp_al)
+al_tp1     = input.bool(true, "Alert TP1",    group=grp_al)
+
+// ══════════════════════════════════════════════════════════
+// TOP-LEVEL HELPERS
+// ══════════════════════════════════════════════════════════
+_fmt(v)           => str.tostring(math.round(v * 10) / 10)
+_dir_col(d)       => d == "LONG" ? color.lime : d == "SHORT" ? color.red : color.gray
+_trend_str(u, dn) => u ? "BULL" : dn ? "BEAR" : "NEUT"
+_trend_col(u, dn) => u ? color.lime : dn ? color.red : color.gray
+
+// ══════════════════════════════════════════════════════════
+// MTF FUNCTION — simplified, fires regularly
+// Returns [buy, sell, direction, entry, sl, tp1, tp2, tp3, adx, uptrend, downtrend]
+// ══════════════════════════════════════════════════════════
+f_tf(_rr1, _rr2, _rr3, _slm, _mode, _adxf, _volf, _vlen) =>
+    _atr  = ta.atr(14)
+    _e1   = ta.ema(close, 9)
+    _e2   = ta.ema(close, 21)
+    _e3   = ta.ema(close, 50)
+    _e4   = ta.ema(close, 200)
+    _rsi  = ta.rsi(close, 14)
+    [_ml, _ms, _mh] = ta.macd(close, 12, 26, 9)
+    [_dp, _dm, _adxv] = ta.dmi(14, 14)
+    _vwap = ta.vwap(hlc3)
+    _vm   = ta.sma(volume, _vlen)
+
+    // Core trend: EMAs aligned
+    _ema_bull = (_e1 > _e2) and (_e2 > _e3)
+    _ema_bear = (_e1 < _e2) and (_e2 < _e3)
+
+    // ADX filter
+    _adx_ok  = _adxv >= 20
+    // Volume filter
+    _vol_ok  = volume > _vm * 1.2
+
+    // RSI zone
+    _rsi_bull = _rsi > 50
+    _rsi_bear = _rsi < 50
+
+    // MACD direction
+    _macd_bull = _ml > _ms
+    _macd_bear = _ml < _ms
+
+    // VWAP side
+    _vwap_bull = close > _vwap
+    _vwap_bear = close < _vwap
+
+    // Crossover triggers (so signal fires on the bar of the cross, not every bar)
+    _ema_cross_up   = _ema_bull and not (_e1[1] > _e2[1] and _e2[1] > _e3[1])
+    _ema_cross_dn   = _ema_bear and not (_e1[1] < _e2[1] and _e2[1] < _e3[1])
+    _macd_cross_up  = (_ml > _ms) and (_ml[1] <= _ms[1])
+    _macd_cross_dn  = (_ml < _ms) and (_ml[1] >= _ms[1])
+    _rsi_cross_50u  = (_rsi > 50) and (_rsi[1] <= 50)
+    _rsi_cross_50d  = (_rsi < 50) and (_rsi[1] >= 50)
+
+    // Build buy/sell based on mode
+    // Trigger: at least one crossover fires, plus trend alignment
+    _trigger_bull = _ema_cross_up or _macd_cross_up or _rsi_cross_50u
+    _trigger_bear = _ema_cross_dn or _macd_cross_dn or _rsi_cross_50d
+
+    _conf_bull = _mode == "EMA Only" ? _ema_bull :
+                 _mode == "EMA + RSI Only" ? (_ema_bull and _rsi_bull and _vwap_bull) :
+                 (_ema_bull and _rsi_bull and _macd_bull and _vwap_bull)
+
+    _conf_bear = _mode == "EMA Only" ? _ema_bear :
+                 _mode == "EMA + RSI Only" ? (_ema_bear and _rsi_bear and _vwap_bear) :
+                 (_ema_bear and _rsi_bear and _macd_bear and _vwap_bear)
+
+    _raw_buy  = _trigger_bull and _conf_bull
+    _raw_sell = _trigger_bear and _conf_bear
+
+    _buy  = _raw_buy  and (_adxf ? _adx_ok : true) and (_volf ? _vol_ok : true)
+    _sell = _raw_sell and (_adxf ? _adx_ok : true) and (_volf ? _vol_ok : true)
+
+    // SL & targets
+    _sl_b = low  - _slm * _atr
+    _sl_s = high + _slm * _atr
+    _rk_b = math.max(close - _sl_b, _atr * 0.5)
+    _rk_s = math.max(_sl_s - close, _atr * 0.5)
+
+    var string _ld = "NONE"
+    var float  _le = na
+    var float  _ls = na
+    var float  _l1 = na
+    var float  _l2 = na
+    var float  _l3 = na
+
+    if _buy
+        _ld := "LONG"
+        _le := close
+        _ls := _sl_b
+        _l1 := close + _rr1 * _rk_b
+        _l2 := close + _rr2 * _rk_b
+        _l3 := close + _rr3 * _rk_b
+    if _sell
+        _ld := "SHORT"
+        _le := close
+        _ls := _sl_s
+        _l1 := close - _rr1 * _rk_s
+        _l2 := close - _rr2 * _rk_s
+        _l3 := close - _rr3 * _rk_s
+
+    [_buy, _sell, _ld, _le, _ls, _l1, _l2, _l3, _adxv, _ema_bull, _ema_bear]
+
+// ══════════════════════════════════════════════════════════
+// REQUEST.SECURITY — 4 TIMEFRAMES
+// ══════════════════════════════════════════════════════════
+[b15,s15,dir15,ent15,sl15,t1_15,t2_15,t3_15,adx15,up15,dn15] = request.security(
+    syminfo.tickerid, "15", f_tf(rr1,rr2,rr3,sl_mult,sig_mode,adx_filter,vol_filter,vol_len), lookahead=barmerge.lookahead_off)
+[b1h,s1h,dir1h,ent1h,sl1h,t1_1h,t2_1h,t3_1h,adx1h,up1h,dn1h] = request.security(
+    syminfo.tickerid, "60", f_tf(rr1,rr2,rr3,sl_mult,sig_mode,adx_filter,vol_filter,vol_len), lookahead=barmerge.lookahead_off)
+[b1d,s1d,dir1d,ent1d,sl1d,t1_1d,t2_1d,t3_1d,adx1d,up1d,dn1d] = request.security(
+    syminfo.tickerid, "D",  f_tf(rr1,rr2,rr3,sl_mult,sig_mode,adx_filter,vol_filter,vol_len), lookahead=barmerge.lookahead_off)
+[b1w,s1w,dir1w,ent1w,sl1w,t1_1w,t2_1w,t3_1w,adx1w,up1w,dn1w] = request.security(
+    syminfo.tickerid, "W",  f_tf(rr1,rr2,rr3,sl_mult,sig_mode,adx_filter,vol_filter,vol_len), lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════
+// CURRENT CHART TIMEFRAME — LIVE INDICATORS
+// ══════════════════════════════════════════════════════════
+_atr   = ta.atr(14)
+_e1    = ta.ema(close, ema1_len)
+_e2    = ta.ema(close, ema2_len)
+_e3    = ta.ema(close, ema3_len)
+_e4    = ta.ema(close, ema4_len)
+_rsi   = ta.rsi(close, 14)
+[_ml, _ms, _mh] = ta.macd(close, 12, 26, 9)
+[_dp, _dm, _adx] = ta.dmi(14, 14)
+_vwap  = ta.vwap(hlc3)
+_vm    = ta.sma(volume, vol_len)
+
+// EMA/VWAP plots (clean — no clutter)
+plot(show_emas ? _e1 : na, "EMA9",   color=color.new(color.yellow, 20), linewidth=1)
+plot(show_emas ? _e2 : na, "EMA21",  color=color.new(color.orange, 20), linewidth=1)
+plot(show_emas ? _e3 : na, "EMA50",  color=color.new(color.red,    30), linewidth=2)
+plot(show_emas ? _e4 : na, "EMA200", color=color.new(color.purple, 30), linewidth=2)
+plot(show_vwap ? _vwap : na, "VWAP", color=color.new(color.aqua,   20), linewidth=2)
+
+// S/R Levels
+_ph = ta.pivothigh(high, 10, 10)
+_pl = ta.pivotlow(low,   10, 10)
+var float _res = na
+var float _sup = na
+if not na(_ph)
+    _res := _ph
+if not na(_pl)
+    _sup := _pl
+plot(show_sr ? _res : na, "Resistance", color=color.new(color.red,   50), linewidth=1, style=plot.style_stepline)
+plot(show_sr ? _sup : na, "Support",    color=color.new(color.green, 50), linewidth=1, style=plot.style_stepline)
+
+// ── Crossover triggers (current TF) ──────────────────────
+_ema_bull      = (_e1 > _e2) and (_e2 > _e3)
+_ema_bear      = (_e1 < _e2) and (_e2 < _e3)
+_rsi_bull      = _rsi > 50
+_rsi_bear      = _rsi < 50
+_macd_bull     = _ml > _ms
+_macd_bear     = _ml < _ms
+_vwap_bull     = close > _vwap
+_vwap_bear     = close < _vwap
+_adx_ok        = _adx >= 20
+_vol_ok        = volume > _vm * 1.2
+
+_ema_cross_up  = _ema_bull and not (_e1[1] > _e2[1] and _e2[1] > _e3[1])
+_ema_cross_dn  = _ema_bear and not (_e1[1] < _e2[1] and _e2[1] < _e3[1])
+_macd_cross_up = (_ml > _ms) and (_ml[1] <= _ms[1])
+_macd_cross_dn = (_ml < _ms) and (_ml[1] >= _ms[1])
+_rsi_cross_50u = (_rsi > 50) and (_rsi[1] <= 50)
+_rsi_cross_50d = (_rsi < 50) and (_rsi[1] >= 50)
+
+_trigger_bull  = _ema_cross_up or _macd_cross_up or _rsi_cross_50u
+_trigger_bear  = _ema_cross_dn or _macd_cross_dn or _rsi_cross_50d
+
+_conf_bull = sig_mode == "EMA Only" ? _ema_bull :
+             sig_mode == "EMA + RSI Only" ? (_ema_bull and _rsi_bull and _vwap_bull) :
+             (_ema_bull and _rsi_bull and _macd_bull and _vwap_bull)
+
+_conf_bear = sig_mode == "EMA Only" ? _ema_bear :
+             sig_mode == "EMA + RSI Only" ? (_ema_bear and _rsi_bear and _vwap_bear) :
+             (_ema_bear and _rsi_bear and _macd_bear and _vwap_bear)
+
+_raw_buy  = _trigger_bull and _conf_bull
+_raw_sell = _trigger_bear and _conf_bear
+
+_buy_sig  = _raw_buy  and (adx_filter ? _adx_ok : true) and (vol_filter ? _vol_ok : true)
+_sell_sig = _raw_sell and (adx_filter ? _adx_ok : true) and (vol_filter ? _vol_ok : true)
+
+// ── BUY / SELL Arrows ────────────────────────────────────
+plotshape(_buy_sig,  "BUY",  shape.labelup,   location.belowbar,
+          color.new(color.lime, 0), textcolor=color.black, text="BUY",  size=size.normal)
+plotshape(_sell_sig, "SELL", shape.labeldown,  location.abovebar,
+          color.new(color.red,  0), textcolor=color.white, text="SELL", size=size.normal)
+
+// Trend background (subtle)
+_uptrend   = _ema_bull and _adx_ok
+_downtrend = _ema_bear and _adx_ok
+bgcolor(_uptrend   ? color.new(color.green, 96) : na)
+bgcolor(_downtrend ? color.new(color.red,   96) : na)
+
+// ══════════════════════════════════════════════════════════
+// TRADE MANAGER  (zone drawing)
+// ══════════════════════════════════════════════════════════
+var string _tdir   = "NONE"
+var float  _tent   = na
+var float  _tsl    = na
+var float  _ttp1   = na
+var float  _ttp2   = na
+var float  _ttp3   = na
+var bool   _tp1hit = false
+var bool   _tp2hit = false
+
+var string _prev_tdir = "NONE"
+var bool   _prev_tp1  = false
+var bool   _prev_tp2  = false
+
+var line  _zl_en = na
+var line  _zl_sl = na
+var line  _zl_t1 = na
+var line  _zl_t2 = na
+var line  _zl_t3 = na
+var linefill _zf_sl = na
+var linefill _zf_t1 = na
+var linefill _zf_t2 = na
+var linefill _zf_t3 = na
+var label _lb_en = na
+var label _lb_sl = na
+var label _lb_t1 = na
+var label _lb_t2 = na
+var label _lb_t3 = na
+
+_del_zones() =>
+    line.delete(_zl_en)
+    line.delete(_zl_sl)
+    line.delete(_zl_t1)
+    line.delete(_zl_t2)
+    line.delete(_zl_t3)
+    linefill.delete(_zf_sl)
+    linefill.delete(_zf_t1)
+    linefill.delete(_zf_t2)
+    linefill.delete(_zf_t3)
+    label.delete(_lb_en)
+    label.delete(_lb_sl)
+    label.delete(_lb_t1)
+    label.delete(_lb_t2)
+    label.delete(_lb_t3)
+
+// ── Open LONG ─────────────────────────────────────────────
+if _buy_sig and _tdir == "NONE"
+    _tdir   := "LONG"
+    _tent   := close
+    _tsl    := low - sl_mult * _atr
+    _rk      = close - _tsl
+    _ttp1   := close + rr1 * _rk
+    _ttp2   := close + rr2 * _rk
+    _ttp3   := close + rr3 * _rk
+    _tp1hit := false
+    _tp2hit := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close,   _x2, close,   color=color.white,            width=2, xloc=xloc.bar_index)
+        _zl_sl := line.new(bar_index, _tsl,    _x2, _tsl,    color=color.red,              width=2, xloc=xloc.bar_index)
+        _zl_t1 := line.new(bar_index, _ttp1,   _x2, _ttp1,   color=color.new(color.yellow,20), width=1, xloc=xloc.bar_index)
+        _zl_t2 := line.new(bar_index, _ttp2,   _x2, _ttp2,   color=color.new(color.lime,  20), width=2, xloc=xloc.bar_index)
+        _zl_t3 := line.new(bar_index, _ttp3,   _x2, _ttp3,   color=color.new(color.teal,  20), width=2, xloc=xloc.bar_index)
+        _zf_sl := linefill.new(_zl_sl, _zl_en, color.new(color.red,   90))
+        _zf_t1 := linefill.new(_zl_en, _zl_t1, color.new(color.lime,  93))
+        _zf_t2 := linefill.new(_zl_t1, _zl_t2, color.new(color.green, 90))
+        _zf_t3 := linefill.new(_zl_t2, _zl_t3, color.new(color.teal,  90))
+        _lb_en := label.new(_lx, close,  "ENTRY "  + _fmt(close),                       style=label.style_label_left, color=color.new(color.gray,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_sl := label.new(_lx, _tsl,   "SL  "    + _fmt(_tsl),                        style=label.style_label_left, color=color.new(color.red,   20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t1 := label.new(_lx, _ttp1,  "TP1 "    + _fmt(_ttp1) + " (" + str.tostring(rr1, "#.#") + "R)", style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t2 := label.new(_lx, _ttp2,  "TP2 "    + _fmt(_ttp2) + " (" + str.tostring(rr2, "#.#") + "R)", style=label.style_label_left, color=color.new(color.lime,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t3 := label.new(_lx, _ttp3,  "TP3 "    + _fmt(_ttp3) + " (" + str.tostring(rr3, "#.#") + "R)", style=label.style_label_left, color=color.new(color.teal,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+
+// ── Open SHORT ────────────────────────────────────────────
+if _sell_sig and _tdir == "NONE"
+    _tdir   := "SHORT"
+    _tent   := close
+    _tsl    := high + sl_mult * _atr
+    _rk      = _tsl - close
+    _ttp1   := close - rr1 * _rk
+    _ttp2   := close - rr2 * _rk
+    _ttp3   := close - rr3 * _rk
+    _tp1hit := false
+    _tp2hit := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close,  _x2, close,  color=color.white,              width=2, xloc=xloc.bar_index)
+        _zl_sl := line.new(bar_index, _tsl,   _x2, _tsl,   color=color.red,                width=2, xloc=xloc.bar_index)
+        _zl_t1 := line.new(bar_index, _ttp1,  _x2, _ttp1,  color=color.new(color.yellow,20), width=1, xloc=xloc.bar_index)
+        _zl_t2 := line.new(bar_index, _ttp2,  _x2, _ttp2,  color=color.new(color.lime,  20), width=2, xloc=xloc.bar_index)
+        _zl_t3 := line.new(bar_index, _ttp3,  _x2, _ttp3,  color=color.new(color.teal,  20), width=2, xloc=xloc.bar_index)
+        _zf_sl := linefill.new(_zl_en, _zl_sl, color.new(color.red,   90))
+        _zf_t1 := linefill.new(_zl_t1, _zl_en, color.new(color.lime,  93))
+        _zf_t2 := linefill.new(_zl_t2, _zl_t1, color.new(color.green, 90))
+        _zf_t3 := linefill.new(_zl_t3, _zl_t2, color.new(color.teal,  90))
+        _lb_en := label.new(_lx, close,  "ENTRY "  + _fmt(close),                       style=label.style_label_left, color=color.new(color.gray,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_sl := label.new(_lx, _tsl,   "SL  "    + _fmt(_tsl),                        style=label.style_label_left, color=color.new(color.red,   20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t1 := label.new(_lx, _ttp1,  "TP1 "    + _fmt(_ttp1) + " (" + str.tostring(rr1, "#.#") + "R)", style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t2 := label.new(_lx, _ttp2,  "TP2 "    + _fmt(_ttp2) + " (" + str.tostring(rr2, "#.#") + "R)", style=label.style_label_left, color=color.new(color.lime,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+        _lb_t3 := label.new(_lx, _ttp3,  "TP3 "    + _fmt(_ttp3) + " (" + str.tostring(rr3, "#.#") + "R)", style=label.style_label_left, color=color.new(color.teal,  20), textcolor=color.white, size=size.small, xloc=xloc.bar_index)
+
+// ── Manage active trade ───────────────────────────────────
+if _tdir != "NONE"
+    if show_zones and not na(_zl_en)
+        _nx = bar_index + zone_ext
+        line.set_x2(_zl_en, _nx)
+        line.set_x2(_zl_sl, _nx)
+        line.set_x2(_zl_t1, _nx)
+        line.set_x2(_zl_t2, _nx)
+        line.set_x2(_zl_t3, _nx)
+        if not na(_lb_en)
+            label.set_x(_lb_en, _nx + 1)
+            label.set_x(_lb_sl, _nx + 1)
+            label.set_x(_lb_t1, _nx + 1)
+            label.set_x(_lb_t2, _nx + 1)
+            label.set_x(_lb_t3, _nx + 1)
+    if _tdir == "LONG"
+        if not _tp1hit and high >= _ttp1
+            _tp1hit := true
+            if trail_be
+                _tsl := _tent
+        if not _tp2hit and high >= _ttp2
+            _tp2hit := true
+        if low <= _tsl or high >= _ttp3
+            _del_zones()
+            _tdir := "NONE"
+    if _tdir == "SHORT"
+        if not _tp1hit and low <= _ttp1
+            _tp1hit := true
+            if trail_be
+                _tsl := _tent
+        if not _tp2hit and low <= _ttp2
+            _tp2hit := true
+        if high >= _tsl or low <= _ttp3
+            _del_zones()
+            _tdir := "NONE"
+
+// ══════════════════════════════════════════════════════════
+// HTF LEVEL LINES (off by default to avoid chart clutter)
+// Only shows the most recent signal from each TF
+// ══════════════════════════════════════════════════════════
+plot(show_htf_lines and dir15 != "NONE" ? ent15 : na, "15m Entry", color=color.new(color.blue,   30), linewidth=1, style=plot.style_linebr)
+plot(show_htf_lines and dir15 != "NONE" ? sl15  : na, "15m SL",    color=color.new(color.blue,   60), linewidth=1, style=plot.style_linebr)
+plot(show_htf_lines and dir15 != "NONE" ? t1_15 : na, "15m TP1",   color=color.new(color.blue,   50), linewidth=1, style=plot.style_linebr)
+plot(show_htf_lines and dir1h != "NONE" ? ent1h : na, "1H Entry",  color=color.new(color.purple, 30), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1h != "NONE" ? sl1h  : na, "1H SL",     color=color.new(color.purple, 60), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1h != "NONE" ? t1_1h : na, "1H TP1",    color=color.new(color.purple, 50), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1d != "NONE" ? ent1d : na, "1D Entry",  color=color.new(color.orange, 30), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1d != "NONE" ? sl1d  : na, "1D SL",     color=color.new(color.orange, 60), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1d != "NONE" ? t1_1d : na, "1D TP1",    color=color.new(color.orange, 50), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1w != "NONE" ? ent1w : na, "1W Entry",  color=color.new(color.yellow, 30), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1w != "NONE" ? sl1w  : na, "1W SL",     color=color.new(color.yellow, 60), linewidth=2, style=plot.style_linebr)
+plot(show_htf_lines and dir1w != "NONE" ? t1_1w : na, "1W TP1",    color=color.new(color.yellow, 50), linewidth=2, style=plot.style_linebr)
+
+// ══════════════════════════════════════════════════════════
+// MTF DASHBOARD TABLE
+// Col 1 = CUR (live chart TF — changes when you switch TF)
+// Col 2 = 1H | Col 3 = 1D | Col 4 = 1W
+// ══════════════════════════════════════════════════════════
+
+// Live current-TF values (from main body — always reflects chart TF)
+_cur_trend  = _trend_str(_uptrend, _downtrend)
+_cur_trcol  = _trend_col(_uptrend, _downtrend)
+_cur_dir    = _tdir
+_cur_adx    = math.round(_adx)
+_cur_entry  = _tdir != "NONE" ? _fmt(_tent) : "---"
+_cur_sl     = _tdir != "NONE" ? _fmt(_tsl)  : "---"
+_cur_tp1    = _tdir != "NONE" ? _fmt(_ttp1) : "---"
+_cur_tp2    = _tdir != "NONE" ? _fmt(_ttp2) : "---"
+_cur_tp3    = _tdir != "NONE" ? _fmt(_ttp3) : "---"
+_cur_newsig = _buy_sig ? "BUY" : _sell_sig ? "SELL" : "-"
+_cur_sigcol = _buy_sig ? color.lime : _sell_sig ? color.red : color.gray
+
+_tbl_pos = mtf_pos == "Top Right" ? position.top_right : mtf_pos == "Top Left" ? position.top_left : mtf_pos == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+var table _tb = table.new(_tbl_pos, 5, 10,
+    bgcolor=color.new(color.black, 75),
+    border_color=color.new(color.gray, 50), border_width=1,
+    frame_color=color.new(color.gray,  30), frame_width=1)
+
+// 5 columns: Label | CUR | 1H | 1D | 1W
+_row(r, lbl, vc, v1h, v1d, v1w, cc, c1h, c1d, c1w) =>
+    table.cell(_tb, 0, r, lbl, text_color=color.gray, text_size=size.small, bgcolor=color.new(color.black, 80))
+    table.cell(_tb, 1, r, vc,  text_color=cc,          text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 2, r, v1h, text_color=c1h,          text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 3, r, v1d, text_color=c1d,          text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 4, r, v1w, text_color=c1w,          text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+
+if barstate.islast and show_mtf
+    // Header — CUR column shows the actual TF name (e.g. "15" "60" "D")
+    _cur_hdr = timeframe.period
+    table.cell(_tb, 0, 0, "DSR V9",  text_color=color.white,                 text_size=size.small, bgcolor=color.new(color.navy,10), text_halign=text.align_center)
+    table.cell(_tb, 1, 0, _cur_hdr,  text_color=color.new(color.aqua,   10), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 2, 0, "1H",      text_color=color.new(color.purple, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 3, 0, "1D",      text_color=color.new(color.orange, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+    table.cell(_tb, 4, 0, "1W",      text_color=color.new(color.yellow, 20), text_size=size.small, bgcolor=color.new(color.navy,30), text_halign=text.align_center)
+
+    _row(1, "TREND",
+        _cur_trend, _trend_str(up1h, dn1h), _trend_str(up1d, dn1d), _trend_str(up1w, dn1w),
+        _cur_trcol, _trend_col(up1h, dn1h), _trend_col(up1d, dn1d), _trend_col(up1w, dn1w))
+
+    _row(2, "SIGNAL",
+        _cur_dir, dir1h, dir1d, dir1w,
+        _dir_col(_cur_dir), _dir_col(dir1h), _dir_col(dir1d), _dir_col(dir1w))
+
+    _row(3, "ADX",
+        str.tostring(_cur_adx), str.tostring(math.round(adx1h)),
+        str.tostring(math.round(adx1d)), str.tostring(math.round(adx1w)),
+        _cur_adx >= 20 ? color.lime : color.orange,
+        adx1h >= 20 ? color.lime : color.orange,
+        adx1d >= 20 ? color.lime : color.orange,
+        adx1w >= 20 ? color.lime : color.orange)
+
+    _row(4, "ENTRY",
+        _cur_entry, dir1h != "NONE" ? _fmt(ent1h) : "---",
+        dir1d != "NONE" ? _fmt(ent1d) : "---", dir1w != "NONE" ? _fmt(ent1w) : "---",
+        color.white, color.white, color.white, color.white)
+
+    _row(5, "SL",
+        _cur_sl, dir1h != "NONE" ? _fmt(sl1h) : "---",
+        dir1d != "NONE" ? _fmt(sl1d) : "---", dir1w != "NONE" ? _fmt(sl1w) : "---",
+        color.red, color.red, color.red, color.red)
+
+    _row(6, "TP1",
+        _cur_tp1, dir1h != "NONE" ? _fmt(t1_1h) : "---",
+        dir1d != "NONE" ? _fmt(t1_1d) : "---", dir1w != "NONE" ? _fmt(t1_1w) : "---",
+        color.yellow, color.yellow, color.yellow, color.yellow)
+
+    _row(7, "TP2",
+        _cur_tp2, dir1h != "NONE" ? _fmt(t2_1h) : "---",
+        dir1d != "NONE" ? _fmt(t2_1d) : "---", dir1w != "NONE" ? _fmt(t2_1w) : "---",
+        color.lime, color.lime, color.lime, color.lime)
+
+    _row(8, "TP3",
+        _cur_tp3, dir1h != "NONE" ? _fmt(t3_1h) : "---",
+        dir1d != "NONE" ? _fmt(t3_1d) : "---", dir1w != "NONE" ? _fmt(t3_1w) : "---",
+        color.teal, color.teal, color.teal, color.teal)
+
+    _row(9, "NEW SIG",
+        _cur_newsig, b1h ? "BUY" : s1h ? "SELL" : "-",
+        b1d ? "BUY" : s1d ? "SELL" : "-", b1w ? "BUY" : s1w ? "SELL" : "-",
+        _cur_sigcol,
+        b1h ? color.lime : s1h ? color.red : color.gray,
+        b1d ? color.lime : s1d ? color.red : color.gray,
+        b1w ? color.lime : s1w ? color.red : color.gray)
+
+// ══════════════════════════════════════════════════════════
+// ALERTS
+// ══════════════════════════════════════════════════════════
+_tp1_edge = _tp1hit and not _prev_tp1
+_tp2_edge = _tp2hit and not _prev_tp2
+_sl_edge  = (_prev_tdir != "NONE") and (_tdir == "NONE")
+_prev_tdir := _tdir
+_prev_tp1  := _tp1hit
+_prev_tp2  := _tp2hit
+
+_en_s = not na(_tent) ? _fmt(_tent) : "---"
+_sl_s = not na(_tsl)  ? _fmt(_tsl)  : "---"
+_t1_s = not na(_ttp1) ? _fmt(_ttp1) : "---"
+
+if al_buy  and _buy_sig
+    alert("DSR BUY | "  + syminfo.ticker + " Entry:" + _fmt(close) + " SL:" + _fmt(low - sl_mult * _atr), alert.freq_once_per_bar)
+if al_sell and _sell_sig
+    alert("DSR SELL | " + syminfo.ticker + " Entry:" + _fmt(close) + " SL:" + _fmt(high + sl_mult * _atr), alert.freq_once_per_bar)
+if al_tp1  and _tp1_edge
+    alert("DSR TP1 HIT | " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+if al_sl   and _sl_edge
+    alert("DSR SL HIT | "  + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
+
+alertcondition(_buy_sig,  "DSR BUY",  "DSR PRO V9 BUY on {{ticker}}")
+alertcondition(_sell_sig, "DSR SELL", "DSR PRO V9 SELL on {{ticker}}")
+alertcondition(_tp1_edge, "DSR TP1",  "DSR PRO V9 TP1 Hit on {{ticker}}")
+alertcondition(_sl_edge,  "DSR SL",   "DSR PRO V9 SL Hit on {{ticker}}")
+// ══════════════════════════════════════════════════════════
+// END DSR PRO V9
+// ══════════════════════════════════════════════════════════

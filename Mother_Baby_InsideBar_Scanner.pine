@@ -31,6 +31,7 @@ filter_rsi = input.bool(false, "RSI Zone Filter (RSI > 50 for BUY, < 50 for SELL
 filter_vol = input.bool(false, "Volume Expansion on Breakout (> 1.2x avg)",            group=grp_acc, tooltip="Enable to require above-average volume on the breakout candle")
 vol_mult   = input.float(1.2,  "Volume Multiplier",                                    group=grp_acc, minval=1.0, step=0.1)
 filter_htf = input.bool(false, "Higher TF Trend Alignment (Daily must agree)",         group=grp_acc, tooltip="For 15m/1H signals: Daily EMA trend must align with signal direction")
+filter_wicks = input.bool(true, "Filter Long Rejection Wicks on Breakout",             group=grp_acc, tooltip="Ensures the breakout candle closes strong and isn't heavily rejected by a long wick, preventing wick-based fakeouts.")
 
 grp_tp     = "══ SL & TARGET SETTINGS ══"
 sl_source  = input.string("Mother Bar Boundary", "Stop Loss Source",
@@ -72,7 +73,7 @@ _trend_col(u, dn) => u ? color.lime : dn ? color.red : color.gray
 // CORE MOTHER & BABY BREAKOUT LOGIC FUNCTION
 // ══════════════════════════════════════════════════════════
 f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
-             _f_ema, _f_rsi, _f_vol, _vmult) =>
+             _f_ema, _f_rsi, _f_vol, _vmult, _f_wicks) =>
     _atr  = ta.atr(14)
     _e1   = ta.ema(close, 21)
     _e2   = ta.ema(close, 50)
@@ -128,9 +129,14 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
         if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low)
             _in_ib := false
 
-    // Breakout Rules: green close above Mother High = BUY, red close below Mother Low = SELL
-    _raw_buy  = _in_ib[1] and (close > _m_high[1]) and (close > open)
-    _raw_sell = _in_ib[1] and (close < _m_low[1])  and (close < open)
+    // Breakout Rules with Wick Rejection Filter
+    // Ensures we aren't just breaking with the body while leaving a massive fakeout wick
+    float _bo_rng = high - low
+    bool _valid_buy_wick = not _f_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5) // Close must be in top 50%
+    bool _valid_sel_wick = not _f_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5) // Close must be in bottom 50%
+
+    _raw_buy  = _in_ib[1] and (close > _m_high[1]) and (close > open) and _valid_buy_wick
+    _raw_sell = _in_ib[1] and (close < _m_low[1])  and (close < open)  and _valid_sel_wick
 
     _buy_bo  = _raw_buy and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
     _sell_bo = _raw_sell and (_f_ema ? _ema_bear : true) and (_f_rsi ? _rsi_bear : true) and (_f_vol ? _vol_ok : true)
@@ -197,19 +203,19 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
 // MULTI-TIMEFRAME ANALYSIS (15m, 1H, 1D, 1W, 1M)
 // ══════════════════════════════════════════════════════════
 [mb15, b15, s15, st15, en15, sl15, t1_15, t2_15, t3_15, opp15, up15] = request.security(
-    syminfo.tickerid, "15", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult), lookahead=barmerge.lookahead_off)
+    syminfo.tickerid, "15", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
 [mb1h, b1h, s1h, st1h, en1h, sl1h, t1_1h, t2_1h, t3_1h, opp1h, up1h] = request.security(
-    syminfo.tickerid, "60", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult), lookahead=barmerge.lookahead_off)
+    syminfo.tickerid, "60", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
 [mb1d, b1d, s1d, st1d, en1d, sl1d, t1_1d, t2_1d, t3_1d, opp1d, up1d] = request.security(
-    syminfo.tickerid, "D",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult), lookahead=barmerge.lookahead_off)
+    syminfo.tickerid, "D",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
 [mb1w, b1w, s1w, st1w, en1w, sl1w, t1_1w, t2_1w, t3_1w, opp1w, up1w] = request.security(
-    syminfo.tickerid, "W",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult), lookahead=barmerge.lookahead_off)
+    syminfo.tickerid, "W",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
 [mb1m, b1m, s1m, st1m, en1m, sl1m, t1_1m, t2_1m, t3_1m, opp1m, up1m] = request.security(
-    syminfo.tickerid, "M",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult), lookahead=barmerge.lookahead_off)
+    syminfo.tickerid, "M",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
 // Daily EMA trend for HTF alignment check
 [_d_ema_bull] = request.security(syminfo.tickerid, "D", [ta.ema(close, 21) > ta.ema(close, 50)], lookahead=barmerge.lookahead_off)
@@ -270,9 +276,13 @@ else
     if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low)
         _in_ib := false
 
-// Breakout Signals WITH Accuracy Filters
-_raw_buy  = _in_ib[1] and (close > _m_high[1]) and (close > open)
-_raw_sell = _in_ib[1] and (close < _m_low[1])  and (close < open)
+// Breakout Signals WITH Accuracy Filters & Wicks Validation
+float _bo_rng = high - low
+bool _valid_buy_wick = not filter_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5) // Close must be in top 50%
+bool _valid_sel_wick = not filter_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5) // Close must be in bottom 50%
+
+_raw_buy  = _in_ib[1] and (close > _m_high[1]) and (close > open) and _valid_buy_wick
+_raw_sell = _in_ib[1] and (close < _m_low[1])  and (close < open) and _valid_sel_wick
 
 _buy_sig  = _raw_buy and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
 _sell_sig = _raw_sell and (filter_ema ? _ema_bear : true) and (filter_rsi ? _rsi_bear : true) and (filter_vol ? _vol_ok : true) and _htf_bear

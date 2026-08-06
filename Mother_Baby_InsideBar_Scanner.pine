@@ -137,20 +137,13 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
         if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_new_day)
             _in_ib := false
 
-<<<<<<< HEAD
-    // Breakout Rules with Wick Rejection Filter
-    // Ensures we aren't just breaking with the body while leaving a massive fakeout wick
+    // Breakout Rules with Wick Rejection Filter & Session Gap Open Protection
     float _bo_rng = high - low
     bool _valid_buy_wick = not _f_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5) // Close must be in top 50%
     bool _valid_sel_wick = not _f_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5) // Close must be in bottom 50%
 
-    _raw_buy  = _in_ib[1] and (close > _m_high[1]) and (close > open) and _valid_buy_wick
-    _raw_sell = _in_ib[1] and (close < _m_low[1])  and (close < open)  and _valid_sel_wick
-=======
-    // Breakout Rules (Only when inside bar valid and NOT on new day opening candle)
-    _raw_buy  = _in_ib[1] and not _is_new_day and (close > _m_high) and (close > open)
-    _raw_sell = _in_ib[1] and not _is_new_day and (close < _m_low)  and (close < open)
->>>>>>> 1ff3e33 (feat: Update Mother_Baby_InsideBar_Scanner & Stock Scanner with 3-box layout and gap open protection)
+    _raw_buy  = _in_ib[1] and not _is_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
+    _raw_sell = _in_ib[1] and not _is_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
 
     var bool _tr_act = false
     var int  _tr_dir = 0

@@ -401,10 +401,17 @@ def run_scanner(title, tickers, apply_price_filter):
     export_to_google_sheet(title, all_results)
 
 
+# Set FORCE_RUN = True or pass --force to run the scanner on weekends/holidays
+FORCE_RUN = False
+
+
 def main():
     today = datetime.now()
-    if today.weekday() >= 5:  # 0=Monday ... 4=Friday, 5=Saturday, 6=Sunday
-        print(f"Today is {today.strftime('%A')} ({today.strftime('%Y-%m-%d')}). Scanner runs only from Monday to Friday.")
+    is_force = "--force" in sys.argv or FORCE_RUN
+    if today.weekday() >= 5 and not is_force:  # 0=Monday ... 4=Friday, 5=Saturday, 6=Sunday
+        print(f"Today is {today.strftime('%A')} ({today.strftime('%Y-%m-%d')}). Scanner runs automatically Monday to Friday.")
+        print("To run right now (e.g., to test weekend data or verify Google Sheet export), run with --force:")
+        print("    python3 inside_bar_scanner_combined_daily.py --force")
         sys.exit(0)
 
     print(f"Combined Inside Bar Scanner — {datetime.now().strftime('%Y-%m-%d %H:%M')} | Interval: {INTERVAL}")

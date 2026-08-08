@@ -69,7 +69,7 @@ SHEET_GID = "1661228420"
 EXPORT_TO_GOOGLE_SHEET = True
 
 # Option 1: Google Apps Script Web App URL (Recommended)
-GOOGLE_SHEET_WEBHOOK_URL = ""
+GOOGLE_SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwhStvUOaJTEdIzxOwJZc3DK7aOhsD5tR-AZrhY_BhPWY7mwN5BU_JuNSilFfDC1P6S/exec"
 
 # Option 2: Service Account Credentials File
 SERVICE_ACCOUNT_FILE = "service_account.json"

@@ -66,13 +66,20 @@ f_mb(_fe, _fd) =>
     var float _ml = na
     var bool  _ii = false
 
-    // Session / New Day Reset: Invalidate yesterday's inside bars on gap open
+    var int   _tr_dir = 0   // 1 = Active BUY, -1 = Active SELL, 0 = Flat
+    var float _tr_sl  = na
+    var float _tr_tp1 = na
+    var float _tr_ent = na
+    var int   _tr_age = 0   // Bars active
+
+    // Session / New Day Reset: Invalidate yesterday's inside bars and active trades on gap open / new day
     _is_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
 
     if _is_new_day
         _ii := false
         _mh := na
         _ml := na
+        _tr_dir := 0
 
     if _im and not _ii and not _is_new_day
         _mh := high[1]
@@ -83,12 +90,6 @@ f_mb(_fe, _fd) =>
     else
         if not _im and not na(_mh) and (close > _mh or close < _ml or high > _mh or low < _ml or _is_new_day)
             _ii := false
-
-    var int   _tr_dir = 0   // 1 = Active BUY, -1 = Active SELL, 0 = Flat
-    var float _tr_sl  = na
-    var float _tr_tp1 = na
-    var float _tr_ent = na
-    var int   _tr_age = 0   // Bars active
 
     // Breakout Rules (Only when inside bar valid and NOT on new day opening candle)
     _rb = _ii[1] and not _is_new_day and (close > _mh) and (close > open)

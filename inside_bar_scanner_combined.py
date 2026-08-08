@@ -1,14 +1,14 @@
 """
-Inside Bar Breakout Scanner — TWO SCANNERS IN ONE SCRIPT (DAILY CANDLES)
+Inside Bar Breakout Scanner — TWO SCANNERS IN ONE SCRIPT
 ------------------------------------------------------------------------------
-  SCANNER 1: NIFTY 50 constituents (daily candles)
-  SCANNER 2: ALL NSE-listed stocks, any price (daily candles)
+  SCANNER 1: NIFTY 50 constituents (hourly candles)
+  SCANNER 2: ALL NSE-listed stocks priced <= Rs 500 (hourly candles)
 
 Data source: Yahoo Finance via `yfinance` (free, no signup, no API key).
 
 IMPORTANT — read before running Scanner 2:
-  NSE has 2000+ listed equities. Scanning all of them via a free data source
-  means:
+  NSE has 2000+ listed equities. Scanning all of them on hourly candles via
+  a free data source means:
     - It WILL take a long time to run (think 20-60+ minutes depending on
       your internet connection and Yahoo's rate limiting that day).
     - Yahoo may start returning errors/blocks if hit too fast — this script
@@ -21,7 +21,7 @@ Install dependencies (Mac terminal):
     pip3 install yfinance requests --break-system-packages
 
 Run:
-    python3 inside_bar_scanner_combined_daily.py
+    python3 inside_bar_scanner_combined.py
 """
 
 import os
@@ -45,8 +45,8 @@ except ImportError:
 RUN_NIFTY50_SCANNER = True
 RUN_ALL_NSE_UNDER_500_SCANNER = True
 
-INTERVAL = "1d"
-LOOKBACK_PERIOD = "6mo"    # daily bars need more history than hourly to have enough data
+INTERVAL = "60m"
+LOOKBACK_PERIOD = "1mo"
 VOLUME_CONFIRM = True
 VOLUME_LOOKBACK = 20
 MAX_PRICE = 500.0          # price ceiling for Scanner 2
@@ -58,7 +58,7 @@ BATCH_PAUSE_SECONDS = 2.5  # pause between batches to ease rate limiting / DNS l
 ALL_NSE_TEST_LIMIT = 100
 
 NSE_EQUITY_LIST_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
-LOCAL_CACHE_FILE = "nse_equity_list_cache.csv"  # shared cache file — same list works for both interval scripts
+LOCAL_CACHE_FILE = "nse_equity_list_cache.csv"
 
 # --------------------------------------------------------------------------
 # GOOGLE SHEETS CONFIG
@@ -290,20 +290,7 @@ def print_results(title, results):
         return
     print(f"{'Ticker':<16}{'Bar Time':<22}{'Signal':<28}{'Close':<10}{'Vol OK':<18}{'Entry':<24}{'Stop-Loss':<24}{'Target'}")
     print("-" * 165)
-
-    formed = [s for s in results if "BREAKOUT" in s.direction]
-    watch = [s for s in results if "BREAKOUT" not in s.direction]
-
-    for s in formed:
-        print(
-            f"{s.ticker:<16}{s.datetime_str:<22}{s.direction:<28}{s.close:<10}{s.volume_ok:<18}"
-            f"{s.entry:<24}{s.stop_loss:<24}{s.target}"
-        )
-
-    if formed and watch:
-        print(f"\n--- WATCH LIST (inside bar formed, no breakout yet — {len(watch)}) ---")
-
-    for s in watch:
+    for s in results:
         print(
             f"{s.ticker:<16}{s.datetime_str:<22}{s.direction:<28}{s.close:<10}{s.volume_ok:<18}"
             f"{s.entry:<24}{s.stop_loss:<24}{s.target}"
@@ -402,11 +389,6 @@ def run_scanner(title, tickers, apply_price_filter):
 
 
 def main():
-    today = datetime.now()
-    if today.weekday() >= 5:  # 0=Monday ... 4=Friday, 5=Saturday, 6=Sunday
-        print(f"Today is {today.strftime('%A')} ({today.strftime('%Y-%m-%d')}). Scanner runs only from Monday to Friday.")
-        sys.exit(0)
-
     print(f"Combined Inside Bar Scanner — {datetime.now().strftime('%Y-%m-%d %H:%M')} | Interval: {INTERVAL}")
 
     if RUN_NIFTY50_SCANNER:

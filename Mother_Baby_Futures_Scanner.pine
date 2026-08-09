@@ -1,0 +1,856 @@
+// ============================================================
+// MOTHER & BABY INSIDE BAR FUTURES SCANNER & INDICATOR (v6)
+// ============================================================
+// Dedicated indicator for NSE Stock Futures (F&O Market)
+// Compatible with TradingView FREE Plan (Strict <= 40 security calls limit)
+//
+// Key Features:
+// 1. Automatic Front-Month Continuous Futures Contract Auto-Sync (NSE:ROOT1!)
+// 2. Multi-Timeframe Futures Analysis: 15m (Intraday), 1H (Hourly), 1D (Daily)
+// 3. 36 Top Liquid NSE F&O Stock Futures Automatic Scanner Table
+// 4. Strict Mother & Baby 2-Candle Pattern Rules with Doji Filter
+// 5. EMA 21 vs 50 Trend Alignment Filter (Avoid Counter-Trend Fakeouts)
+// 6. Breakout Candle Rejection Wick Filter (Close Strength >= 50%)
+// 7. Volume Expansion Filter (> 1.2x 20-period Volume SMA)
+// 8. High Confidence Setup Tag for Opposite Color Mother/Baby Candles
+// 9. Dynamic Trade Zone Box (Entry, SL, TP1 1.5R, TP2 2.5R, TP3 4.0R)
+// 10. Real-time Bar-Close Confirmed Alerts
+// ============================================================
+//@version=6
+indicator("Mother & Baby Futures Scanner | F&O", shorttitle="M&B FUT SCAN", overlay=true,
+          max_bars_back=300, max_lines_count=100, max_labels_count=100)
+
+// ══════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════
+grp_mb     = "══ MOTHER & BABY PATTERN RULES ══"
+req_opp_col= input.bool(false, "Require Opposite Colors (Mother/Baby)", group=grp_mb, tooltip="If true, only setups where Mother & Baby have opposite colors are triggered")
+filter_doji= input.bool(true,  "Filter Out Doji Mother Candles",         group=grp_mb, tooltip="Invalidates setup if Mother candle body < 10% of range")
+min_m_body = input.float(10.0, "Min Mother Body % of Range",             group=grp_mb, minval=5.0, maxval=50.0)
+
+grp_acc    = "══ ACCURACY FILTERS (Reduce False Signals) ══"
+filter_ema = input.bool(true,  "EMA Trend Filter (21 > 50 for BUY, 21 < 50 for SELL)", group=grp_acc, tooltip="Buy signals only in uptrend, Sell signals only in downtrend")
+filter_rsi = input.bool(false, "RSI Zone Filter (RSI > 50 for BUY, < 50 for SELL)",    group=grp_acc, tooltip="Enable to avoid buying overbought / selling oversold setups")
+filter_vol = input.bool(false, "Volume Expansion on Breakout (> 1.2x avg)",            group=grp_acc, tooltip="Require above-average volume on breakout candle")
+vol_mult   = input.float(1.2,  "Volume Multiplier",                                    group=grp_acc, minval=1.0, step=0.1)
+filter_htf = input.bool(false, "Higher TF Trend Alignment (Daily must agree)",         group=grp_acc, tooltip="For 15m/1H signals: Daily Futures EMA trend must align with signal direction")
+filter_wicks = input.bool(true, "Filter Long Rejection Wicks on Breakout",             group=grp_acc, tooltip="Ensures breakout candle closes strong in direction of breakout")
+
+grp_tp     = "══ SL & TARGET SETTINGS ══"
+sl_source  = input.string("Mother Bar Boundary", "Stop Loss Source",
+             options=["Mother Bar Boundary", "Breakout Candle Low/High", "ATR Multiplier"], group=grp_tp)
+sl_mult    = input.float(1.5, "ATR SL Multiplier",                       group=grp_tp, minval=0.5, step=0.1)
+rr1        = input.float(1.5, "TP1 Risk:Reward (1.5R)",                  group=grp_tp, minval=0.5, step=0.1)
+rr2        = input.float(2.5, "TP2 Risk:Reward (2.5R)",                  group=grp_tp, minval=0.5, step=0.1)
+rr3        = input.float(4.0, "TP3 Risk:Reward (4.0R)",                  group=grp_tp, minval=0.5, step=0.1)
+show_zones = input.bool(true, "Show Active Trade Box",                   group=grp_tp)
+show_labels= input.bool(true, "Show Signal Labels on Chart",             group=grp_tp)
+zone_ext   = input.int(15,    "Extend Trade Box (bars)",                 group=grp_tp, minval=5,  maxval=100)
+
+grp_vis    = "══ DISPLAY SETTINGS & DASHBOARD ══"
+show_mtf   = input.bool(true,  "Show MTF Futures Table (15m, 1H, 1D)",  group=grp_vis, tooltip="Shows MTF status table for selected Futures stock")
+mtf_pos    = input.string("Top Right", "MTF Table Position",
+             options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=grp_vis)
+show_scan  = input.bool(true,  "Show 36 Multi-Futures Scanner Table",    group=grp_vis, tooltip="Shows automatic scanner table for top 36 NSE Stock Futures")
+scan_pos   = input.string("Bottom Right", "Multi-Futures Scanner Position",
+             options=["Bottom Right","Top Right","Top Left","Bottom Left"], group=grp_vis)
+scan_tf_in = input.string("Chart TF (Auto Sync)", "Scanner Timeframe",
+             options=["Chart TF (Auto Sync)", "15m - Intraday", "1H - Hourly", "1D - Daily"], group=grp_vis)
+show_colors= input.bool(true,  "Highlight Mother & Baby Candles",        group=grp_vis)
+color_mb_m = input.color(color.new(color.aqua, 0),   "Mother Candle Highlight Color", group=grp_vis)
+color_mb_b = input.color(color.new(color.yellow, 0), "Baby Candle Highlight Color",   group=grp_vis)
+
+grp_al     = "══ ALERTS ══"
+al_buy     = input.bool(true, "Alert BUY Breakout",  group=grp_al)
+al_sell    = input.bool(true, "Alert SELL Breakout", group=grp_al)
+al_sl      = input.bool(true, "Alert SL Hit",        group=grp_al)
+al_tp1     = input.bool(true, "Alert TP1 Hit",       group=grp_al)
+
+// Timeframe resolution helper
+scan_tf = scan_tf_in == "Chart TF (Auto Sync)" ? timeframe.period : scan_tf_in == "15m - Intraday" ? "15" : scan_tf_in == "1H - Hourly" ? "60" : "D"
+
+// ══════════════════════════════════════════════════════════
+// HELPER FUNCTIONS
+// ══════════════════════════════════════════════════════════
+_fmt(v)           => str.tostring(v, "#.##")
+_dir_col(d)       => str.contains(d, "CLOSED (TP)") ? color.new(color.lime, 30) : str.contains(d, "CLOSED (SL)") ? color.new(color.red, 30) : d == "BULL BO" ? color.lime : d == "BEAR BO" ? color.red : d == "INSIDE" ? color.yellow : color.gray
+_trend_str(u, dn) => u ? "BULL" : dn ? "BEAR" : "NEUT"
+_trend_col(u, dn) => u ? color.lime : dn ? color.red : color.gray
+
+// ══════════════════════════════════════════════════════════
+// CORE MOTHER & BABY FUTURES ENGINE
+// ══════════════════════════════════════════════════════════
+f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
+             _f_ema, _f_rsi, _f_vol, _vmult, _f_wicks) =>
+    _atr  = ta.atr(14)
+    _e1   = ta.ema(close, 21)
+    _e2   = ta.ema(close, 50)
+    _rsi  = ta.rsi(close, 14)
+    _vm   = ta.sma(volume, 20)
+
+    _ema_bull = _e1 > _e2
+    _ema_bear = _e1 < _e2
+    _rsi_bull = _rsi > 50
+    _rsi_bear = _rsi < 50
+    _vol_ok   = volume > _vm * _vmult
+
+    // 1. Strict Mother & Baby Inside Bar Detection
+    _m_range = high[1] - low[1]
+    _m_body  = math.abs(close[1] - open[1])
+    _m_body_ratio = _m_range > 0 ? (_m_body / _m_range) * 100 : 0.0
+
+    // Doji Filter: Mother candle body must be >= min_m_body %
+    _is_mother_valid = not _f_doji or (_m_body_ratio >= _m_body_pct)
+
+    // Strict Containment: Baby high <= Mother high AND Baby low >= Mother low
+    _is_baby_inside  = (high <= high[1]) and (low >= low[1])
+
+    // High Confidence Setup: Opposite Colors
+    _is_mother_red   = close[1] < open[1]
+    _is_mother_green = close[1] > open[1]
+    _is_baby_red     = close < open
+    _is_baby_green   = close > open
+
+    _is_opp_color    = (_is_mother_red and _is_baby_green) or (_is_mother_green and _is_baby_red)
+    _color_valid     = not _req_opp or _is_opp_color
+
+    // Valid Pattern Trigger
+    _is_mb_pattern   = _is_mother_valid and _is_baby_inside and _color_valid
+
+    // Track active Mother Bar Boundaries
+    var float _m_high = na
+    var float _m_low  = na
+    var bool  _in_ib  = false
+    var bool  _is_opp_setup = false
+
+    // Session / New Day Reset: Invalidate yesterday's inside bars on gap open / new day
+    _is_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
+
+    var bool _tr_act = false
+    var int  _tr_dir = 0
+    var string _st   = "NEUTRAL"
+    var float  _en   = na
+    var float  _sl   = na
+    var float  _t1   = na
+    var float  _t2   = na
+    var float  _t3   = na
+
+    if _is_new_day
+        _in_ib := false
+        _m_high := na
+        _m_low  := na
+        if _tr_act or _tr_dir != 0
+            _tr_act := false
+            _tr_dir := 0
+            _st := "CLOSED (PREV DAY)"
+        else if _st == "BULL BO" or _st == "BEAR BO" or str.contains(_st, "CLOSED")
+            _st := "CLOSED (PREV DAY)"
+
+    if _is_mb_pattern and not _in_ib and not _is_new_day
+        _m_high := high[1]
+        _m_low  := low[1]
+        _in_ib  := true
+        _is_opp_setup := _is_opp_color
+    else if _in_ib and (high <= _m_high) and (low >= _m_low) and not _is_new_day
+        _in_ib := true
+    else
+        if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_new_day)
+            _in_ib := false
+
+    // Breakout Rules with Wick Rejection Filter
+    float _bo_rng = high - low
+    bool _valid_buy_wick = not _f_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
+    bool _valid_sel_wick = not _f_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
+
+    _raw_buy  = _in_ib[1] and not _is_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
+    _raw_sell = _in_ib[1] and not _is_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
+
+    _buy_bo  = _raw_buy and not _tr_act and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
+    _sell_bo = _raw_sell and not _tr_act and (_f_ema ? _ema_bear : true) and (_f_rsi ? _rsi_bear : true) and (_f_vol ? _vol_ok : true)
+
+    // Calculate Entry, Stop Loss & Targets
+    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+                 _sl_src == "ATR Multiplier" ? _slm * _atr :
+                 math.max(close - _m_low[1], _atr * 0.5)
+
+    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+                 _sl_src == "ATR Multiplier" ? _slm * _atr :
+                 math.max(_m_high[1] - close, _atr * 0.5)
+
+    if _buy_bo
+        _st     := "BULL BO"
+        _en     := close
+        _sl     := close - _sl_dist_b
+        _t1     := close + _rr1 * _sl_dist_b
+        _t2     := close + _rr2 * _sl_dist_b
+        _t3     := close + _rr3 * _sl_dist_b
+        _tr_act := true
+        _tr_dir := 1
+        _in_ib  := false
+    else if _sell_bo
+        _st     := "BEAR BO"
+        _en     := close
+        _sl     := close + _sl_dist_s
+        _t1     := close - _rr1 * _sl_dist_s
+        _t2     := close - _rr2 * _sl_dist_s
+        _t3     := close - _rr3 * _sl_dist_s
+        _tr_act := true
+        _tr_dir := -1
+        _in_ib  := false
+
+    // Monitor active trade for TP / SL completion
+    if _tr_act and not _buy_bo and not _sell_bo
+        if _tr_dir == 1
+            if high >= _t1
+                _st     := "CLOSED (TP)"
+                _tr_act := false
+                _tr_dir := 0
+            else if low <= _sl
+                _st     := "CLOSED (SL)"
+                _tr_act := false
+                _tr_dir := 0
+            else if not _ema_bull
+                _st     := "CLOSED (TREND FLIP)"
+                _tr_act := false
+                _tr_dir := 0
+        else if _tr_dir == -1
+            if low <= _t1
+                _st     := "CLOSED (TP)"
+                _tr_act := false
+                _tr_dir := 0
+            else if high >= _sl
+                _st     := "CLOSED (SL)"
+                _tr_act := false
+                _tr_dir := 0
+            else if not _ema_bear
+                _st     := "CLOSED (TREND FLIP)"
+                _tr_act := false
+                _tr_dir := 0
+
+    if _is_mb_pattern and not _buy_bo and not _sell_bo and not _tr_act
+        _st := "INSIDE"
+
+    [_is_mb_pattern, _buy_bo, _sell_bo, _st, _en, _sl, _t1, _t2, _t3, _is_opp_setup, _ema_bull]
+
+f_mb_light(_req_opp, _f_doji, _m_body_pct, _f_ema, _f_wicks) =>
+    [mb, b, s, st, en, sl, t1, t2, t3, opp, up] = f_mb_engine(_req_opp, _f_doji, _m_body_pct, "Mother Bar Boundary", 1.5, 1.5, 2.5, 4.0, _f_ema, false, false, 1.2, _f_wicks)
+    [b, s, mb, opp, up, st == "BULL BO" or st == "BEAR BO" ? 1 : 0]
+
+// ══════════════════════════════════════════════════════════
+// FUTURES SYMBOL AUTO-SYNC (NSE:ROOT1!)
+// ══════════════════════════════════════════════════════════
+_fut_ticker = syminfo.prefix + ":" + syminfo.root + "1!"
+
+// ══════════════════════════════════════════════════════════
+// MULTI-TIMEFRAME ANALYSIS FOR FUTURES CONTRACT (15m, 1H, 1D) -> 3 Security Calls
+// ══════════════════════════════════════════════════════════
+[mb15, b15, s15, st15, en15, sl15, t1_15, t2_15, t3_15, opp15, up15] = request.security(
+    _fut_ticker, "15", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[mb1h, b1h, s1h, st1h, en1h, sl1h, t1_1h, t2_1h, t3_1h, opp1h, up1h] = request.security(
+    _fut_ticker, "60", f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+[mb1d, b1d, s1d, st1d, en1d, sl1d, t1_1d, t2_1d, t3_1d, opp1d, up1d] = request.security(
+    _fut_ticker, "D",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// Daily EMA trend for HTF alignment check -> 1 Security Call
+[_d_ema_bull] = request.security(_fut_ticker, "D", [ta.ema(close, 21) > ta.ema(close, 50)], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// ══════════════════════════════════════════════════════════
+// CURRENT CHART TIMEFRAME EXECUTION
+// ══════════════════════════════════════════════════════════
+_atr  = ta.atr(14)
+_e1   = ta.ema(close, 21)
+_e2   = ta.ema(close, 50)
+_rsi  = ta.rsi(close, 14)
+_vm   = ta.sma(volume, 20)
+
+_ema_bull = _e1 > _e2
+_ema_bear = _e1 < _e2
+_rsi_bull = _rsi > 50
+_rsi_bear = _rsi < 50
+_vol_ok   = volume > _vm * vol_mult
+
+_is_intraday = timeframe.in_seconds() <= 3600
+_htf_bull    = filter_htf ? (_is_intraday ? _d_ema_bull : _ema_bull) : true
+_htf_bear    = filter_htf ? (_is_intraday ? not _d_ema_bull : _ema_bear) : true
+
+_m_range = high[1] - low[1]
+_m_body  = math.abs(close[1] - open[1])
+_m_body_ratio = _m_range > 0 ? (_m_body / _m_range) * 100 : 0.0
+_is_mother_valid = not filter_doji or (_m_body_ratio >= min_m_body)
+_is_baby_inside  = (high <= high[1]) and (low >= low[1])
+
+_is_mother_red   = close[1] < open[1]
+_is_mother_green = close[1] > open[1]
+_is_baby_red     = close < open
+_is_baby_green   = close > open
+
+_is_opp_color  = (_is_mother_red and _is_baby_green) or (_is_mother_green and _is_baby_red)
+_color_valid   = not req_opp_col or _is_opp_color
+_is_mb_pattern = _is_mother_valid and _is_baby_inside and _color_valid
+
+// Chart Candle Coloring for Mother & Baby
+barcolor(show_colors and _is_mb_pattern ? color_mb_b : show_colors and _is_mb_pattern[1] ? color_mb_m : na)
+
+// ══════════════════════════════════════════════════════════
+// TRADE MANAGER (Zone Lines & Box Variables & Helper)
+// ══════════════════════════════════════════════════════════
+var float  _tent   = na
+var float  _tsl    = na
+var float  _ttp1   = na
+var float  _ttp2   = na
+var float  _ttp3   = na
+var bool   _tp1hit = false
+var bool   _tp2hit = false
+var bool   _tp3hit = false
+var bool   _slhit  = false
+
+var line _zl_en = na
+var line _zl_sl = na
+var line _zl_t1 = na
+var line _zl_t2 = na
+var line _zl_t3 = na
+var linefill _zf_sl = na
+var linefill _zf_t1 = na
+var linefill _zf_t2 = na
+var linefill _zf_t3 = na
+var label _lb_en = na
+var label _lb_sl = na
+var label _lb_t1 = na
+var label _lb_t2 = na
+var label _lb_t3 = na
+
+_del_zones() =>
+    line.delete(_zl_en)
+    line.delete(_zl_sl)
+    line.delete(_zl_t1)
+    line.delete(_zl_t2)
+    line.delete(_zl_t3)
+    linefill.delete(_zf_sl)
+    linefill.delete(_zf_t1)
+    linefill.delete(_zf_t2)
+    linefill.delete(_zf_t3)
+    label.delete(_lb_en)
+    label.delete(_lb_sl)
+    label.delete(_lb_t1)
+    label.delete(_lb_t2)
+    label.delete(_lb_t3)
+
+var float  _m_high = na
+var float  _m_low  = na
+var bool   _in_ib  = false
+var bool   _is_opp_setup = false
+var string _tdir   = "NONE"
+
+_is_chart_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
+
+if _is_chart_new_day
+    _in_ib := false
+    _m_high := na
+    _m_low  := na
+    if _tdir != "NONE"
+        _del_zones()
+        _tdir := "NONE"
+
+if _is_mb_pattern and not _in_ib and (_tdir == "NONE") and not _is_chart_new_day
+    _m_high := high[1]
+    _m_low  := low[1]
+    _in_ib  := true
+    _is_opp_setup := _is_opp_color
+else if _in_ib and (high <= _m_high) and (low >= _m_low) and not _is_chart_new_day
+    _in_ib := true
+else
+    if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_chart_new_day)
+        _in_ib := false
+
+// Breakout Candle Wick Rejection Filter
+float _bo_rng = high - low
+bool _valid_buy_wick = not filter_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
+bool _valid_sel_wick = not filter_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
+
+_raw_buy  = _in_ib[1] and not _is_chart_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
+_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
+
+_buy_sig  = _raw_buy and (_tdir == "NONE") and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
+_sell_sig = _raw_sell and (_tdir == "NONE") and (filter_ema ? _ema_bear : true) and (filter_rsi ? _rsi_bear : true) and (filter_vol ? _vol_ok : true) and _htf_bear
+
+var int _b_since_buy  = 999
+var int _b_since_sell = 999
+
+if _buy_sig
+    _b_since_buy := 0
+else
+    _b_since_buy := _b_since_buy + 1
+
+if _sell_sig
+    _b_since_sell := 0
+else
+    _b_since_sell := _b_since_sell + 1
+
+_is_fresh_buy  = _b_since_buy <= 5
+_is_fresh_sell = _b_since_sell <= 5
+
+// Dynamic Signal Tracking (Active vs Closed Signals)
+var label[] _lbl_arr = array.new_label(0)
+var float[] _sl_arr  = array.new_float(0)
+var float[] _tp1_arr = array.new_float(0)
+var int[]   _dir_arr = array.new_int(0)
+var bool[]  _act_arr = array.new_bool(0)
+
+if show_labels and _buy_sig
+    _sl_dist = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+               sl_source == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(close - _m_low[1], _atr * 0.5)
+    _sl_val = close - _sl_dist
+    _t1_val = close + rr1 * _sl_dist
+    _t2_val = close + rr2 * _sl_dist
+    _t3_val = close + rr3 * _sl_dist
+    _conf_tag = _is_opp_setup ? " [HIGH CONFIDENCE 🔥]" : ""
+    _tip_b = "📈 FUTURES BUY BREAKOUT (" + timeframe.period + ")" + _conf_tag + "\n" +
+             "────────────────────────\n" +
+             "Contract: " + syminfo.root + "1!\n" +
+             "Entry Price: " + _fmt(close) + "\n" +
+             "Stop Loss: "   + _fmt(_sl_val) + "\n" +
+             "TP1 (1.5R): "  + _fmt(_t1_val) + "\n" +
+             "TP2 (2.5R): "  + _fmt(_t2_val) + "\n" +
+             "TP3 (4.0R): "  + _fmt(_t3_val)
+    _l = label.new(bar_index, low, "🔥 FUT BUY", style=label.style_label_up,
+               color=color.lime, textcolor=color.black, size=size.normal,
+               tooltip=_tip_b)
+    array.push(_lbl_arr, _l)
+    array.push(_sl_arr,  _sl_val)
+    array.push(_tp1_arr, _t1_val)
+    array.push(_dir_arr, 1)
+    array.push(_act_arr, true)
+
+if show_labels and _sell_sig
+    _sl_dist = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+               sl_source == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(_m_high[1] - close, _atr * 0.5)
+    _sl_val = close + _sl_dist
+    _t1_val = close - rr1 * _sl_dist
+    _t2_val = close - rr2 * _sl_dist
+    _t3_val = close - rr3 * _sl_dist
+    _conf_tag = _is_opp_setup ? " [HIGH CONFIDENCE 🔥]" : ""
+    _tip_s = "📉 FUTURES SELL BREAKDOWN (" + timeframe.period + ")" + _conf_tag + "\n" +
+             "────────────────────────\n" +
+             "Contract: " + syminfo.root + "1!\n" +
+             "Entry Price: " + _fmt(close) + "\n" +
+             "Stop Loss: "   + _fmt(_sl_val) + "\n" +
+             "TP1 (1.5R): "  + _fmt(_t1_val) + "\n" +
+             "TP2 (2.5R): "  + _fmt(_t2_val) + "\n" +
+             "TP3 (4.0R): "  + _fmt(_t3_val)
+    _l = label.new(bar_index, high, "🔥 FUT SELL", style=label.style_label_down,
+               color=color.red, textcolor=color.white, size=size.normal,
+               tooltip=_tip_s)
+    array.push(_lbl_arr, _l)
+    array.push(_sl_arr,  _sl_val)
+    array.push(_tp1_arr, _t1_val)
+    array.push(_dir_arr, -1)
+    array.push(_act_arr, true)
+
+// Update historical signal labels dynamically across bars
+if array.size(_lbl_arr) > 0
+    for i = 0 to array.size(_lbl_arr) - 1
+        if array.get(_act_arr, i)
+            _dir = array.get(_dir_arr, i)
+            _tp  = array.get(_tp1_arr, i)
+            _sl  = array.get(_sl_arr, i)
+            _lbl = array.get(_lbl_arr, i)
+
+            if _is_chart_new_day
+                array.set(_act_arr, i, false)
+                label.set_text(_lbl, "⏱️ " + (_dir == 1 ? "BUY" : "SELL") + " (CLOSED - PREV DAY)")
+                label.set_color(_lbl, color.new(color.gray, 20))
+                label.set_textcolor(_lbl, color.white)
+                label.set_size(_lbl, size.small)
+            else if _dir == 1
+                if high >= _tp
+                    array.set(_act_arr, i, false)
+                    label.set_text(_lbl, "✅ BUY (CLOSED - TP)")
+                    label.set_color(_lbl, color.new(#1b5e20, 20))
+                    label.set_textcolor(_lbl, color.lime)
+                    label.set_size(_lbl, size.small)
+                else if low <= _sl
+                    array.set(_act_arr, i, false)
+                    label.set_text(_lbl, "❌ BUY (CLOSED - SL)")
+                    label.set_color(_lbl, color.new(#b71c1c, 20))
+                    label.set_textcolor(_lbl, color.white)
+                    label.set_size(_lbl, size.small)
+            else if _dir == -1
+                if low <= _tp
+                    array.set(_act_arr, i, false)
+                    label.set_text(_lbl, "✅ SELL (CLOSED - TP)")
+                    label.set_color(_lbl, color.new(#1b5e20, 20))
+                    label.set_textcolor(_lbl, color.lime)
+                    label.set_size(_lbl, size.small)
+                else if high >= _sl
+                    array.set(_act_arr, i, false)
+                    label.set_text(_lbl, "❌ SELL (CLOSED - SL)")
+                    label.set_color(_lbl, color.new(#b71c1c, 20))
+                    label.set_textcolor(_lbl, color.white)
+                    label.set_size(_lbl, size.small)
+
+// ══════════════════════════════════════════════════════════
+// TRADE MANAGER Execution
+// ══════════════════════════════════════════════════════════
+if _buy_sig
+    _tdir   := "LONG"
+    _tent   := close
+    _sl_d    = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
+               sl_source == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(close - _m_low[1], _atr * 0.5)
+    _tsl    := close - _sl_d
+    _ttp1   := close + rr1 * _sl_d
+    _ttp2   := close + rr2 * _sl_d
+    _ttp3   := close + rr3 * _sl_d
+    _tp1hit := false
+    _tp2hit := false
+    _tp3hit := false
+    _slhit  := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close, _x2, close, color=color.white, width=2)
+        _zl_sl := line.new(bar_index, _tsl,  _x2, _tsl,  color=color.red,   width=2)
+        _zl_t1 := line.new(bar_index, _ttp1, _x2, _ttp1, color=color.new(color.yellow, 20), width=1)
+        _zl_t2 := line.new(bar_index, _ttp2, _x2, _ttp2, color=color.new(color.lime,   20), width=2)
+        _zl_t3 := line.new(bar_index, _ttp3, _x2, _ttp3, color=color.new(color.teal,   20), width=2)
+        _zf_sl := linefill.new(_zl_sl, _zl_en, color.new(color.red,   96))
+        _zf_t1 := linefill.new(_zl_en, _zl_t1, color.new(color.lime,  97))
+        _zf_t2 := linefill.new(_zl_t1, _zl_t2, color.new(color.green, 96))
+        _zf_t3 := linefill.new(_zl_t2, _zl_t3, color.new(color.teal,  96))
+        _lb_en := label.new(_lx, close, "ENTRY " + _fmt(close), style=label.style_label_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small)
+        _lb_sl := label.new(_lx, _tsl,  "SL "    + _fmt(_tsl),  style=label.style_label_left, color=color.new(color.red,  20), textcolor=color.white, size=size.small)
+        _lb_t1 := label.new(_lx, _ttp1, "TP1 "   + _fmt(_ttp1), style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small)
+        _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
+        _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
+
+if _sell_sig
+    _tdir   := "SHORT"
+    _tent   := close
+    _sl_d    = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) :
+               sl_source == "ATR Multiplier" ? sl_mult * _atr :
+               math.max(_m_high[1] - close, _atr * 0.5)
+    _tsl    := close + _sl_d
+    _ttp1   := close - rr1 * _sl_d
+    _ttp2   := close - rr2 * _sl_d
+    _ttp3   := close - rr3 * _sl_d
+    _tp1hit := false
+    _tp2hit := false
+    _tp3hit := false
+    _slhit  := false
+    if show_zones
+        _del_zones()
+        _x2 = bar_index + zone_ext
+        _lx = _x2 + 1
+        _zl_en := line.new(bar_index, close, _x2, close, color=color.white, width=2)
+        _zl_sl := line.new(bar_index, _tsl,  _x2, _tsl,  color=color.red,   width=2)
+        _zl_t1 := line.new(bar_index, _ttp1, _x2, _ttp1, color=color.new(color.yellow, 20), width=1)
+        _zl_t2 := line.new(bar_index, _ttp2, _x2, _ttp2, color=color.new(color.lime,   20), width=2)
+        _zl_t3 := line.new(bar_index, _ttp3, _x2, _ttp3, color=color.new(color.teal,   20), width=2)
+        _zf_sl := linefill.new(_zl_en, _zl_sl, color.new(color.red,   96))
+        _zf_t1 := linefill.new(_zl_t1, _zl_en, color.new(color.lime,  97))
+        _zf_t2 := linefill.new(_zl_t2, _zl_t1, color.new(color.green, 96))
+        _zf_t3 := linefill.new(_zl_t3, _zl_t2, color.new(color.teal,  96))
+        _lb_en := label.new(_lx, close, "ENTRY " + _fmt(close), style=label.style_label_left, color=color.new(color.gray, 20), textcolor=color.white, size=size.small)
+        _lb_sl := label.new(_lx, _tsl,  "SL "    + _fmt(_tsl),  style=label.style_label_left, color=color.new(color.red,  20), textcolor=color.white, size=size.small)
+        _lb_t1 := label.new(_lx, _ttp1, "TP1 "   + _fmt(_ttp1), style=label.style_label_left, color=color.new(color.yellow,20), textcolor=color.white, size=size.small)
+        _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
+        _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
+
+if _tdir != "NONE"
+    if show_zones and not na(_zl_en) and barstate.islast
+        _nx = bar_index + zone_ext
+        line.set_x2(_zl_en, _nx)
+        line.set_x2(_zl_sl, _nx)
+        line.set_x2(_zl_t1, _nx)
+        line.set_x2(_zl_t2, _nx)
+        line.set_x2(_zl_t3, _nx)
+        if not na(_lb_en)
+            label.set_x(_lb_en, _nx + 1)
+            label.set_x(_lb_sl, _nx + 1)
+            label.set_x(_lb_t1, _nx + 1)
+            label.set_x(_lb_t2, _nx + 1)
+            label.set_x(_lb_t3, _nx + 1)
+    if _tdir == "LONG"
+        if not _tp1hit and high >= _ttp1
+            _tp1hit := true
+        if not _tp2hit and high >= _ttp2
+            _tp2hit := true
+        if not _tp3hit and high >= _ttp3
+            _tp3hit := true
+        if not _slhit and low <= _tsl
+            _slhit := true
+        if _ema_bear or low <= _tsl or high >= _ttp1
+            _del_zones()
+            _tdir := "NONE"
+
+    if _tdir == "SHORT"
+        if not _tp1hit and low <= _ttp1
+            _tp1hit := true
+        if not _tp2hit and low <= _ttp2
+            _tp2hit := true
+        if not _tp3hit and low <= _ttp3
+            _tp3hit := true
+        if not _slhit and high >= _tsl
+            _slhit := true
+        if _ema_bull or high >= _tsl or low <= _ttp1
+            _del_zones()
+            _tdir := "NONE"
+
+// ══════════════════════════════════════════════════════════
+// MTF FUTURES TABLE (15m, 1H, 1D)
+// ══════════════════════════════════════════════════════════
+_mtf_tbl_pos = mtf_pos == "Top Right" ? position.top_right : mtf_pos == "Top Left" ? position.top_left : mtf_pos == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+var table _tb = table.new(_mtf_tbl_pos, 4, 10,
+    bgcolor=color.new(color.black, 75),
+    border_color=color.new(color.gray, 50), border_width=1,
+    frame_color=color.new(#7c4dff, 30), frame_width=1)
+
+_row(r, lbl, v15, v1h, v1d, c15, c1h, c1d) =>
+    table.cell(_tb, 0, r, lbl, text_color=color.gray, text_size=size.small, bgcolor=color.new(color.black, 80))
+    table.cell(_tb, 1, r, v15, text_color=c15,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 2, r, v1h, text_color=c1h,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+    table.cell(_tb, 3, r, v1d, text_color=c1d,        text_size=size.small, bgcolor=color.new(color.black, 80), text_halign=text.align_right)
+
+_is_act(st) => st == "BULL BO" or st == "BEAR BO"
+
+if barstate.islast and show_mtf
+    _cur_newsig = _buy_sig ? "🔥 BUY (LIVE)" : _is_fresh_buy ? "🔥 BUY (" + str.tostring(_b_since_buy) + "b)" : _sell_sig ? "🔥 SELL (LIVE)" : _is_fresh_sell ? "🔥 SELL (" + str.tostring(_b_since_sell) + "b)" : "-"
+    _cur_sigcol = (_buy_sig or _is_fresh_buy) ? color.lime : (_sell_sig or _is_fresh_sell) ? color.red : color.gray
+
+    _hdr_txt = "⚡ FUT: " + syminfo.root + "1!"
+    table.cell(_tb, 0, 0, _hdr_txt, text_color=color.white, text_size=size.small, bgcolor=color.new(#7c4dff, 20), text_halign=text.align_center)
+    table.cell(_tb, 1, 0, "15m",     text_color=color.aqua,  text_size=size.small, bgcolor=color.new(#7c4dff, 40), text_halign=text.align_center)
+    table.cell(_tb, 2, 0, "1H",      text_color=color.purple,text_size=size.small, bgcolor=color.new(#7c4dff, 40), text_halign=text.align_center)
+    table.cell(_tb, 3, 0, "1D",      text_color=color.orange,text_size=size.small, bgcolor=color.new(#7c4dff, 40), text_halign=text.align_center)
+
+    _row(1, "TREND",
+        _trend_str(up15, not up15), _trend_str(up1h, not up1h), _trend_str(up1d, not up1d),
+        _trend_col(up15, not up15), _trend_col(up1h, not up1h), _trend_col(up1d, not up1d))
+
+    _row(2, "STATUS",
+        st15, st1h, st1d,
+        _dir_col(st15), _dir_col(st1h), _dir_col(st1d))
+
+    _row(3, "OPP COLOR",
+        opp15 ? "YES 🔥" : "NO", opp1h ? "YES 🔥" : "NO", opp1d ? "YES 🔥" : "NO",
+        opp15 ? color.lime : color.gray, opp1h ? color.lime : color.gray, opp1d ? color.lime : color.gray)
+
+    _row(4, "ENTRY",
+        _is_act(st15) ? _fmt(en15) : "---", _is_act(st1h) ? _fmt(en1h) : "---", _is_act(st1d) ? _fmt(en1d) : "---",
+        color.white, color.white, color.white)
+
+    _row(5, "SL",
+        _is_act(st15) ? _fmt(sl15) : "---", _is_act(st1h) ? _fmt(sl1h) : "---", _is_act(st1d) ? _fmt(sl1d) : "---",
+        color.red, color.red, color.red)
+
+    _row(6, "TP1",
+        _is_act(st15) ? _fmt(t1_15) : "---", _is_act(st1h) ? _fmt(t1_1h) : "---", _is_act(st1d) ? _fmt(t1_1d) : "---",
+        color.yellow, color.yellow, color.yellow)
+
+    _row(7, "TP2",
+        _is_act(st15) ? _fmt(t2_15) : "---", _is_act(st1h) ? _fmt(t2_1h) : "---", _is_act(st1d) ? _fmt(t2_1d) : "---",
+        color.lime, color.lime, color.lime)
+
+    _row(8, "TP3",
+        _is_act(st15) ? _fmt(t3_15) : "---", _is_act(st1h) ? _fmt(t3_1h) : "---", _is_act(st1d) ? _fmt(t3_1d) : "---",
+        color.teal, color.teal, color.teal)
+
+    _row(9, "FRESH SIG",
+        _cur_newsig, b1h ? "BUY" : s1h ? "SELL" : "-", b1d ? "BUY" : s1d ? "SELL" : "-",
+        _cur_sigcol, b1h ? color.lime : s1h ? color.red : color.gray, b1d ? color.lime : s1d ? color.red : color.gray)
+
+// ══════════════════════════════════════════════════════════
+// 36 MULTI-STOCK FUTURES SCANNER CALLS (Exactly 36 Security Calls)
+// ══════════════════════════════════════════════════════════
+[fb01,fs01,fp01,fo01,fe01,fa01] = request.security("NSE:RELIANCE1!",   scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb02,fs02,fp02,fo02,fe02,fa02] = request.security("NSE:TCS1!",        scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb03,fs03,fp03,fo03,fe03,fa03] = request.security("NSE:HDFCBANK1!",   scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb04,fs04,fp04,fo04,fe04,fa04] = request.security("NSE:INFY1!",       scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb05,fs05,fp05,fo05,fe05,fa05] = request.security("NSE:ICICIBANK1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb06,fs06,fp06,fo06,fe06,fa06] = request.security("NSE:HINDUNILVR1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb07,fs07,fp07,fo07,fe07,fa07] = request.security("NSE:SBIN1!",       scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb08,fs08,fp08,fo08,fe08,fa08] = request.security("NSE:BAJFINANCE1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb09,fs09,fp09,fo09,fe09,fa09] = request.security("NSE:BHARTIARTL1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb10,fs10,fp10,fo10,fe10,fa10] = request.security("NSE:KOTAKBANK1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb11,fs11,fp11,fo11,fe11,fa11] = request.security("NSE:LT1!",         scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb12,fs12,fp12,fo12,fe12,fa12] = request.security("NSE:HCLTECH1!",    scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb13,fs13,fp13,fo13,fe13,fa13] = request.security("NSE:AXISBANK1!",   scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb14,fs14,fp14,fo14,fe14,fa14] = request.security("NSE:ASIANPAINT1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb15,fs15,fp15,fo15,fe15,fa15] = request.security("NSE:MARUTI1!",     scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb16,fs16,fp16,fo16,fe16,fa16] = request.security("NSE:SUNPHARMA1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb17,fs17,fp17,fo17,fe17,fa17] = request.security("NSE:TITAN1!",      scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb18,fs18,fp18,fo18,fe18,fa18] = request.security("NSE:ULTRACEMCO1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb19,fs19,fp19,fo19,fe19,fa19] = request.security("NSE:WIPRO1!",      scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb20,fs20,fp20,fo20,fe20,fa20] = request.security("NSE:TATAMOTORS1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb21,fs21,fp21,fo21,fe21,fa21] = request.security("NSE:POWERGRID1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb22,fs22,fp22,fo22,fe22,fa22] = request.security("NSE:NTPC1!",       scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb23,fs23,fp23,fo23,fe23,fa23] = request.security("NSE:ONGC1!",       scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb24,fs24,fp24,fo24,fe24,fa24] = request.security("NSE:COALINDIA1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb25,fs25,fp25,fo25,fe25,fa25] = request.security("NSE:ADANIPORTS1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb26,fs26,fp26,fo26,fe26,fa26] = request.security("NSE:TECHM1!",      scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb27,fs27,fp27,fo27,fe27,fa27] = request.security("NSE:BAJAJFINSV1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb28,fs28,fp28,fo28,fe28,fa28] = request.security("NSE:CIPLA1!",      scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb29,fs29,fp29,fo29,fe29,fa29] = request.security("NSE:DRREDDY1!",    scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb30,fs30,fp30,fo30,fe30,fa30] = request.security("NSE:EICHERMOT1!",  scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb31,fs31,fp31,fo31,fe31,fa31] = request.security("NSE:GRASIM1!",     scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb32,fs32,fp32,fo32,fe32,fa32] = request.security("NSE:HEROMOTOCO1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb33,fs33,fp33,fo33,fe33,fa33] = request.security("NSE:HINDALCO1!",   scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb34,fs34,fp34,fo34,fe34,fa34] = request.security("NSE:INDUSINDBK1!", scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb35,fs35,fp35,fo35,fe35,fa35] = request.security("NSE:JSWSTEEL1!",   scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb36,fs36,fp36,fo36,fe36,fa36] = request.security("NSE:M_M1!",        scan_tf, f_mb_light(req_opp_col,filter_doji,min_m_body,filter_ema,filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+
+// Total security calls: 3 (MTF) + 1 (Daily EMA) + 36 (Futures Scanner) = 40 security calls (100% TradingView Free Plan Compliant!)
+
+// ══════════════════════════════════════════════════════════
+// MULTI-STOCK FUTURES SCANNER TABLE RENDER
+// ══════════════════════════════════════════════════════════
+_scan_tbl_pos = scan_pos == "Bottom Right" ? position.bottom_right : scan_pos == "Top Right" ? position.top_right : scan_pos == "Top Left" ? position.top_left : position.bottom_left
+
+var table tb_scan = table.new(_scan_tbl_pos, 10, 24,
+     border_width=1, border_color=color.new(color.gray, 75),
+     frame_width=1,  frame_color=color.new(#7c4dff, 20))
+
+if barstate.islast and show_scan
+    syms  = array.from("RELIANCE FUT","TCS FUT","HDFCBANK FUT","INFY FUT","ICICIBANK FUT","HINDUNILVR FUT","SBIN FUT","BAJFINANCE FUT","BHARTIARTL FUT","KOTAKBANK FUT","LT FUT","HCLTECH FUT","AXISBANK FUT","ASIANPAINT FUT","MARUTI FUT","SUNPHARMA FUT","TITAN FUT","ULTRACEMCO FUT","WIPRO FUT","TATAMOTORS FUT","POWERGRID FUT","NTPC FUT","ONGC FUT","COALINDIA FUT","ADANIPORTS FUT","TECHM FUT","BAJAJFINSV FUT","CIPLA FUT","DRREDDY FUT","EICHERMOT FUT","GRASIM FUT","HEROMOTOCO FUT","HINDALCO FUT","INDUSINDBK FUT","JSWSTEEL FUT","M_M FUT")
+    buys  = array.from(fb01,fb02,fb03,fb04,fb05,fb06,fb07,fb08,fb09,fb10,fb11,fb12,fb13,fb14,fb15,fb16,fb17,fb18,fb19,fb20,fb21,fb22,fb23,fb24,fb25,fb26,fb27,fb28,fb29,fb30,fb31,fb32,fb33,fb34,fb35,fb36)
+    sells = array.from(fs01,fs02,fs03,fs04,fs05,fs06,fs07,fs08,fs09,fs10,fs11,fs12,fs13,fs14,fs15,fs16,fs17,fs18,fs19,fs20,fs21,fs22,fs23,fs24,fs25,fs26,fs27,fs28,fs29,fs30,fs31,fs32,fs33,fs34,fs35,fs36)
+    pats  = array.from(fp01,fp02,fp03,fp04,fp05,fp06,fp07,fp08,fp09,fp10,fp11,fp12,fp13,fp14,fp15,fp16,fp17,fp18,fp19,fp20,fp21,fp22,fp23,fp24,fp25,fp26,fp27,fp28,fp29,fp30,fp31,fp32,fp33,fp34,fp35,fp36)
+    opps  = array.from(fo01,fo02,fo03,fo04,fo05,fo06,fo07,fo08,fo09,fo10,fo11,fo12,fo13,fo14,fo15,fo16,fo17,fo18,fo19,fo20,fo21,fo22,fo23,fo24,fo25,fo26,fo27,fo28,fo29,fo30,fo31,fo32,fo33,fo34,fo35,fo36)
+    emas  = array.from(fe01,fe02,fe03,fe04,fe05,fe06,fe07,fe08,fe09,fe10,fe11,fe12,fe13,fe14,fe15,fe16,fe17,fe18,fe19,fe20,fe21,fe22,fe23,fe24,fe25,fe26,fe27,fe28,fe29,fe30,fe31,fe32,fe33,fe34,fe35,fe36)
+    acts  = array.from(fa01,fa02,fa03,fa04,fa05,fa06,fa07,fa08,fa09,fa10,fa11,fa12,fa13,fa14,fa15,fa16,fa17,fa18,fa19,fa20,fa21,fa22,fa23,fa24,fa25,fa26,fa27,fa28,fa29,fa30,fa31,fa32,fa33,fa34,fa35,fa36)
+
+    act_sym  = array.new_string(0)
+    act_type = array.new_int(0) // 1=BUY, 2=SELL, 3=INSIDE, 4=NONE
+    act_opp  = array.new_bool(0)
+    act_ema  = array.new_bool(0)
+    act_act  = array.new_int(0)
+
+    int nb = 0
+    int ns = 0
+    int ni = 0
+
+    // 1. BUY Signals
+    for i = 0 to array.size(syms) - 1
+        if array.get(buys, i)
+            nb += 1
+            array.push(act_sym, array.get(syms, i))
+            array.push(act_type, 1)
+            array.push(act_opp, array.get(opps, i))
+            array.push(act_ema, array.get(emas, i))
+            array.push(act_act, array.get(acts, i))
+
+    // 2. SELL Signals
+    for i = 0 to array.size(syms) - 1
+        if array.get(sells, i)
+            ns += 1
+            array.push(act_sym, array.get(syms, i))
+            array.push(act_type, 2)
+            array.push(act_opp, array.get(opps, i))
+            array.push(act_ema, array.get(emas, i))
+            array.push(act_act, array.get(acts, i))
+
+    // 3. INSIDE Bars
+    for i = 0 to array.size(syms) - 1
+        if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
+            ni += 1
+            array.push(act_sym, array.get(syms, i))
+            array.push(act_type, 3)
+            array.push(act_opp, array.get(opps, i))
+            array.push(act_ema, array.get(emas, i))
+            array.push(act_act, 0)
+
+    int total_items = array.size(act_sym)
+    _ttl = "⚡ FUTURES SCANNER [" + (scan_tf_in == "Chart TF (Auto Sync)" ? timeframe.period : scan_tf_in) + "] | ▲" + str.tostring(nb) + " BUY  ▼" + str.tostring(ns) + " SELL  ◆" + str.tostring(ni) + " INSIDE"
+
+    for c = 0 to 9
+        table.cell(tb_scan, c, 0, c == 0 ? _ttl : "", text_color=color.white, bgcolor=color.new(#7c4dff, 20), text_size=size.small, text_halign=text.align_left)
+
+    table.cell(tb_scan, 0, 1, "#",     text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 1, 1, "CONTRACT", text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small, text_halign=text.align_left)
+    table.cell(tb_scan, 2, 1, "SIGNAL",text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 3, 1, "TREND", text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 4, 1, "CONF",  text_color=color.yellow,bgcolor=color.new(color.navy, 30), text_size=size.small)
+
+    table.cell(tb_scan, 5, 1, "#",     text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 6, 1, "CONTRACT", text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small, text_halign=text.align_left)
+    table.cell(tb_scan, 7, 1, "SIGNAL",text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 8, 1, "TREND", text_color=color.white, bgcolor=color.new(color.navy, 30), text_size=size.small)
+    table.cell(tb_scan, 9, 1, "CONF",  text_color=color.yellow,bgcolor=color.new(color.navy, 30), text_size=size.small)
+
+    if total_items == 0
+        table.cell(tb_scan, 0, 2, "No active Futures M&B signals.", text_color=color.gray, bgcolor=color.new(color.black, 80), text_size=size.small, text_halign=text.align_left)
+        for c = 1 to 9
+            table.cell(tb_scan, c, 2, "", bgcolor=color.new(color.black, 80))
+    else
+        int half = math.ceil(total_items / 2.0)
+
+        for k = 0 to half - 1
+            int r = 2 + k
+
+            // LEFT COLUMN
+            if k < total_items
+                _stk  = array.get(act_sym, k)
+                _typ  = array.get(act_type, k)
+                _cop  = array.get(act_opp, k)
+                _cem  = array.get(act_ema, k)
+
+                color _bg  = _typ == 1 ? color.new(#1b5e20, 20)  : _typ == 2 ? color.new(#b71c1c, 20)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(color.black, 80)
+                color _txt = _typ == 1 ? color.lime : _typ == 2 ? color.red  : _typ == 3 ? color.yellow : color.gray
+                string _sig= _typ == 1 ? "▲ BUY (FUT)" : _typ == 2 ? "▼ SELL (FUT)" : _typ == 3 ? "◆ INSIDE" : "— NONE"
+
+                table.cell(tb_scan, 0, r, str.tostring(k + 1),  text_color=_txt, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 1, r, _stk,                  text_color=_txt, bgcolor=_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 2, r, _sig,                  text_color=_txt, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 3, r, _cem ? "BULL":"BEAR",  text_color=_cem ? color.lime : color.red, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 4, r, _cop ? "🔥HIGH":"—",   text_color=_cop ? color.yellow : color.gray, bgcolor=_bg, text_size=size.small)
+
+            // RIGHT COLUMN
+            int r_idx = half + k
+            if r_idx < total_items
+                _stk  = array.get(act_sym, r_idx)
+                _typ  = array.get(act_type, r_idx)
+                _cop  = array.get(act_opp, r_idx)
+                _cem  = array.get(act_ema, r_idx)
+
+                color _bg  = _typ == 1 ? color.new(#1b5e20, 20)  : _typ == 2 ? color.new(#b71c1c, 20)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(color.black, 80)
+                color _txt = _typ == 1 ? color.lime : _typ == 2 ? color.red  : _typ == 3 ? color.yellow : color.gray
+                string _sig= _typ == 1 ? "▲ BUY (FUT)" : _typ == 2 ? "▼ SELL (FUT)" : _typ == 3 ? "◆ INSIDE" : "— NONE"
+
+                table.cell(tb_scan, 5, r, str.tostring(r_idx + 1), text_color=_txt, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 6, r, _stk,                     text_color=_txt, bgcolor=_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 7, r, _sig,                     text_color=_txt, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 8, r, _cem ? "BULL":"BEAR",     text_color=_cem ? color.lime : color.red, bgcolor=_bg, text_size=size.small)
+                table.cell(tb_scan, 9, r, _cop ? "🔥HIGH":"—",      text_color=_cop ? color.yellow : color.gray, bgcolor=_bg, text_size=size.small)
+
+// ══════════════════════════════════════════════════════════
+// REAL-TIME ALERTS FOR FUTURES
+// ══════════════════════════════════════════════════════════
+var bool _prev_tp1 = false
+var bool _prev_sl  = false
+_tp1_edge = _tp1hit and not _prev_tp1
+_sl_edge  = _slhit  and not _prev_sl
+_prev_tp1 := _tp1hit
+_prev_sl  := _slhit
+
+if al_buy and _buy_sig
+    alert("⚡ FUTURES BUY BREAKOUT | " + syminfo.root + "1! (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
+if al_sell and _sell_sig
+    alert("⚡ FUTURES SELL BREAKDOWN | " + syminfo.root + "1! (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
+if al_tp1 and _tp1_edge
+    alert("⚡ FUTURES TP1 HIT | " + syminfo.root + "1! @ " + str.tostring(close), alert.freq_once_per_bar)
+if al_sl and _sl_edge
+    alert("⚡ FUTURES SL HIT | " + syminfo.root + "1! @ " + str.tostring(close), alert.freq_once_per_bar)
+
+alertcondition(_buy_sig,  "Futures BUY Breakout",  "Mother & Baby BUY Breakout on {{ticker}} FUT")
+alertcondition(_sell_sig, "Futures SELL Breakdown","Mother & Baby SELL Breakdown on {{ticker}} FUT")
+alertcondition(_tp1_edge, "Futures TP1 Hit",       "Mother & Baby TP1 Hit on {{ticker}} FUT")
+alertcondition(_sl_edge,  "Futures SL Hit",        "Mother & Baby SL Hit on {{ticker}} FUT")
+// ══════════════════════════════════════════════════════════
+// END MOTHER & BABY FUTURES SCANNER
+// ══════════════════════════════════════════════════════════

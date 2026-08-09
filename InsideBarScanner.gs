@@ -1,5 +1,5 @@
 /**
- * MOTHER & BABY / INSIDE BAR BREAKOUT SCANNER (GOOGLE APPS SCRIPT v2)
+ * MOTHER & BABY / INSIDE BAR BREAKOUT SCANNER (GOOGLE APPS SCRIPT v2.1)
  * ------------------------------------------------------------------
  * Spreadsheet: https://docs.google.com/spreadsheets/d/1d3wJfxxkWYrHa23qeIbQCoTYpEpI6mSNefjzFfLGACA/edit#gid=1661228420
  * Tab GID: 1661228420
@@ -18,13 +18,13 @@ const SHEET_GID = "1661228420";
 const NIFTY_50 = [
   "ADANIENT.NS", "ADANIPORTS.NS", "APOLLOHOSP.NS", "ASIANPAINT.NS", "AXISBANK.NS",
   "BAJAJ-AUTO.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS", "BEL.NS", "BHARTIARTL.NS",
-  "CIPLA.NS", "COALINDIA.NS", "DRREDDY.NS", "EICHERMOT.NS", "ETERNAL.NS",
-  "GRASIM.NS", "HCLTECH.NS", "HDFCBANK.NS", "HDFCLIFE.NS", "HINDALCO.NS",
-  "HINDUNILVR.NS", "ICICIBANK.NS", "INDIGO.NS", "INFY.NS", "ITC.NS",
-  "JIOFIN.NS", "JSWSTEEL.NS", "KOTAKBANK.NS", "LT.NS", "M&M.NS",
-  "MARUTI.NS", "MAXHEALTH.NS", "NESTLEIND.NS", "NTPC.NS", "ONGC.NS",
-  "POWERGRID.NS", "RELIANCE.NS", "SBILIFE.NS", "SHRIRAMFIN.NS", "SBIN.NS",
-  "SUNPHARMA.NS", "TCS.NS", "TATACONSUM.NS", "TMPV.NS", "TATASTEEL.NS",
+  "BPCL.NS", "CIPLA.NS", "COALINDIA.NS", "DIVISLAB.NS", "DRREDDY.NS",
+  "EICHERMOT.NS", "GRASIM.NS", "HCLTECH.NS", "HDFCBANK.NS", "HDFCLIFE.NS",
+  "HEROMOTOCO.NS", "HINDALCO.NS", "HINDUNILVR.NS", "ICICIBANK.NS", "INDUSINDBK.NS",
+  "INFY.NS", "ITC.NS", "JSWSTEEL.NS", "KOTAKBANK.NS", "LT.NS",
+  "M&M.NS", "MARUTI.NS", "NESTLEIND.NS", "NTPC.NS", "ONGC.NS",
+  "POWERGRID.NS", "RELIANCE.NS", "SBILIFE.NS", "SBIN.NS", "SHRIRAMFIN.NS",
+  "SUNPHARMA.NS", "TATACONSUM.NS", "TATAMOTORS.NS", "TATASTEEL.NS", "TCS.NS",
   "TECHM.NS", "TITAN.NS", "TRENT.NS", "ULTRACEMCO.NS", "WIPRO.NS"
 ];
 
@@ -35,8 +35,11 @@ function onOpen() {
     .addItem("▶️ Run Daily Scan Now (1D)", "runDailyScan")
     .addItem("▶️ Run Hourly Scan Now (1H)", "runHourlyScan")
     .addSeparator()
-    .addItem("⏰ Enable Auto-Run (Mon-Fri)", "setupTriggers")
-    .addItem("❌ Disable Auto-Run", "removeTriggers")
+    .addItem("🧹 Clear Results Sheet", "clearResultsSheet")
+    .addSeparator()
+    .addItem("⏰ Enable Auto-Run (Daily 4PM)", "setupDailyTrigger")
+    .addItem("⏰ Enable Auto-Run (Hourly Market Hours)", "setupHourlyTrigger")
+    .addItem("❌ Disable All Auto-Run Triggers", "removeTriggers")
     .addToUi();
 }
 
@@ -46,6 +49,14 @@ function runDailyScan() {
 
 function runHourlyScan() {
   scanMarket("60m", "1mo", "HOURLY CANDLES");
+}
+
+function clearResultsSheet() {
+  const sheet = getTargetSheet();
+  sheet.clear();
+  sheet.appendRow(["Updated At", "Interval", "Ticker", "Bar Time", "Signal", "Close", "Volume OK", "Entry", "Stop Loss", "Target"]);
+  sheet.getRange(1, 1, 1, 10).setFontWeight("bold").setBackground("#1155cc").setFontColor("#ffffff");
+  SpreadsheetApp.getUi().alert("🧹 Results sheet has been cleared and reset!");
 }
 
 /**
@@ -271,7 +282,7 @@ function formatDate(date) {
   return Utilities.formatDate(date, "Asia/Kolkata", "yyyy-MM-dd HH:mm");
 }
 
-function setupTriggers() {
+function setupDailyTrigger() {
   removeTriggers();
   ScriptApp.newTrigger("runDailyScan")
     .timeBased()
@@ -279,7 +290,17 @@ function setupTriggers() {
     .atHour(16)
     .create();
     
-  SpreadsheetApp.getUi().alert("✅ Auto-run trigger created! The scanner will run automatically every day at 4:00 PM IST.");
+  SpreadsheetApp.getUi().alert("✅ Daily auto-run trigger created! The scanner will run automatically every day at 4:00 PM IST.");
+}
+
+function setupHourlyTrigger() {
+  removeTriggers();
+  ScriptApp.newTrigger("runHourlyScan")
+    .timeBased()
+    .everyHours(1)
+    .create();
+    
+  SpreadsheetApp.getUi().alert("✅ Hourly auto-run trigger created! The scanner will run automatically every hour.");
 }
 
 function removeTriggers() {
@@ -287,4 +308,5 @@ function removeTriggers() {
   for (let i = 0; i < triggers.length; i++) {
     ScriptApp.deleteTrigger(triggers[i]);
   }
+  SpreadsheetApp.getUi().alert("❌ All auto-run triggers disabled.");
 }

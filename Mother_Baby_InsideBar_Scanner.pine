@@ -64,7 +64,7 @@ al_tp1     = input.bool(true, "Alert TP1 Hit",       group=grp_al)
 // ══════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ══════════════════════════════════════════════════════════
-_fmt(v)           => str.tostring(math.round(v * 10) / 10)
+_fmt(v)           => str.tostring(v, "#.##")
 _dir_col(d)       => str.contains(d, "CLOSED (TP)") ? color.new(color.lime, 30) : str.contains(d, "CLOSED (SL)") ? color.new(color.red, 30) : d == "BULL BO" ? color.lime : d == "BEAR BO" ? color.red : d == "INSIDE" ? color.yellow : color.gray
 _trend_str(u, dn) => u ? "BULL" : dn ? "BEAR" : "NEUT"
 _trend_col(u, dn) => u ? color.lime : dn ? color.red : color.gray

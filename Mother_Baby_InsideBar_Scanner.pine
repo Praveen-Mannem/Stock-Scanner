@@ -361,9 +361,14 @@ else
     if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_chart_new_day)
         _in_ib := false
 
+// Breakout Candle Wick Rejection Filter
+float _bo_rng = high - low
+bool _valid_buy_wick = not filter_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
+bool _valid_sel_wick = not filter_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
+
 // Breakout Signals WITH Accuracy Filters (Only when NO active trade is running and NOT on new day opening candle)
-_raw_buy  = _in_ib[1] and not _is_chart_new_day and (close > _m_high) and (close > open)
-_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open)
+_raw_buy  = _in_ib[1] and not _is_chart_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
+_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
 
 _buy_sig  = _raw_buy and (_tdir == "NONE") and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
 _sell_sig = _raw_sell and (_tdir == "NONE") and (filter_ema ? _ema_bear : true) and (filter_rsi ? _rsi_bear : true) and (filter_vol ? _vol_ok : true) and _htf_bear
@@ -706,9 +711,9 @@ _prev_tp1 := _tp1hit
 _prev_sl  := _slhit
 
 if al_buy and _buy_sig
-    alert("M&B BUY BREAKOUT | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
+    alert("M&B BUY BREAKOUT | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
 if al_sell and _sell_sig
-    alert("M&B SELL BREAKDOWN | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
+    alert("M&B SELL BREAKDOWN | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
 if al_tp1 and _tp1_edge
     alert("M&B TP1 HIT | " + syminfo.ticker + " @ " + str.tostring(close), alert.freq_once_per_bar)
 if al_sl and _sl_edge

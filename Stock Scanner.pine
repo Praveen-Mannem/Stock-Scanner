@@ -20,10 +20,11 @@ mkt_type    = input.string("Spot Data (Best for F&O & Equity)", "Symbol Display 
               group=grp_s, tooltip="Spot data is 100% reliable for F&O & Equity. Option changes table label to FUT for Futures traders.")
 _lbl_suf    = mkt_type == "Futures Labels (FUT)" ? " FUT" : ""
 
-filter_ema  = input.bool(true,  "EMA Trend Filter",     group=grp_s, tooltip="BUY only when EMA21>EMA50, SELL only when EMA21<EMA50")
-filter_doji = input.bool(true,  "Exclude Doji Mothers", group=grp_s, tooltip="Skip patterns where Mother candle body < 10% of range")
-show_inside = input.bool(true,  "Show Inside Bars",     group=grp_s, tooltip="Show stocks currently forming inside bar")
-show_all    = input.bool(false, "Show All Stocks",      group=grp_s, tooltip="When ON: also shows stocks with no active pattern")
+filter_ema   = input.bool(true,  "EMA Trend Filter",     group=grp_s, tooltip="BUY only when EMA21>EMA50, SELL only when EMA21<EMA50")
+filter_doji  = input.bool(true,  "Exclude Doji Mothers", group=grp_s, tooltip="Skip patterns where Mother candle body < 10% of range")
+filter_wicks = input.bool(true,  "Exclude Rejection Wicks", group=grp_s, tooltip="Breakout candle must close in top 50% for BUY / bottom 50% for SELL to filter rejection wicks")
+show_inside  = input.bool(true,  "Show Inside Bars",     group=grp_s, tooltip="Show stocks currently forming inside bar")
+show_all     = input.bool(false, "Show All Stocks",      group=grp_s, tooltip="When ON: also shows stocks with no active pattern")
 
 grp_v       = "══ DISPLAY SETTINGS (3 BOX LAYOUT) ══"
 show_curr   = input.bool(true,  "Show Equity Box (Selected Stock - Box 1)",  group=grp_v, tooltip="Shows real-time Equity/Spot details for selected stock")
@@ -47,7 +48,7 @@ _tsize = txt_sz_in == "Tiny" ? size.tiny : txt_sz_in == "Normal" ? size.normal :
 // ════════════════════════════════════════════════════════════════
 // CORE M&B DETECTION ENGINE WITH ACTIVE TRADE & TP/SL TRACKING
 // ════════════════════════════════════════════════════════════════
-f_mb(_fe, _fd) =>
+f_mb(_fe, _fd, _fw) =>
     _atr = ta.atr(14)
     _e1  = ta.ema(close, 21)
     _e2  = ta.ema(close, 50)
@@ -91,9 +92,13 @@ f_mb(_fe, _fd) =>
         if not _im and not na(_mh) and (close > _mh or close < _ml or high > _mh or low < _ml or _is_new_day)
             _ii := false
 
-    // Breakout Rules (Only when inside bar valid and NOT on new day opening candle)
-    _rb = _ii[1] and not _is_new_day and (close > _mh) and (close > open)
-    _rs = _ii[1] and not _is_new_day and (close < _ml) and (close < open)
+    // Breakout Rules with Wick Rejection Filter
+    float _bo_rng = high - low
+    bool _valid_buy_wick = not _fw or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
+    bool _valid_sel_wick = not _fw or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
+
+    _rb = _ii[1] and not _is_new_day and (close > _mh) and (close > open) and _valid_buy_wick
+    _rs = _ii[1] and not _is_new_day and (close < _ml) and (close < open) and _valid_sel_wick
 
     // Signals generated ONLY when NO trade is currently active (_tr_dir == 0)
     _b  = _rb and (_tr_dir == 0) and (_fe ? _eb : true)
@@ -103,14 +108,14 @@ f_mb(_fe, _fd) =>
         _tr_dir := 1
         _tr_age := 0
         _tr_ent := close
-        _sl_dist = math.max(close - _ml[1], _atr * 0.5)
+        _sl_dist = math.max(close - _ml, _atr * 0.5)
         _tr_sl  := close - _sl_dist
         _tr_tp1 := close + (_sl_dist * 1.5)
     else if _s
         _tr_dir := -1
         _tr_age := 0
         _tr_ent := close
-        _sl_dist = math.max(_mh[1] - close, _atr * 0.5)
+        _sl_dist = math.max(_mh - close, _atr * 0.5)
         _tr_sl  := close + _sl_dist
         _tr_tp1 := close - (_sl_dist * 1.5)
     else if _tr_dir != 0
@@ -130,59 +135,59 @@ f_mb(_fe, _fd) =>
 
     [_is_buy, _is_sell, _is_ins, _opp, _eb, _tr_age, _tr_ent, _tr_sl, _tr_tp1, _mh, _ml, close]
 
-f_mb_light(_fe, _fd) =>
-    [b, s, p, o, e, a, ent, sl, tp1, mh, ml, cl] = f_mb(_fe, _fd)
+f_mb_light(_fe, _fd, _fw) =>
+    [b, s, p, o, e, a, ent, sl, tp1, mh, ml, cl] = f_mb(_fe, _fd, _fw)
     [b, s, p, o, e, a]
 
 // ════════════════════════════════════════════════════════════════
 // DATA FETCHING: 2 SELECTED STOCK CALLS (EQUITY & FUTURES) + 38 SCANNER CALLS = 40 CALLS MAX
 // ════════════════════════════════════════════════════════════════
 // 1. Equity / Spot Selected Stock (Call #1)
-[cb, cs, cp, co, ce, ca, cent, csl, ctp1, cmh, cml, c_close] = request.security(syminfo.tickerid, scan_tf, f_mb(filter_ema, filter_doji), lookahead=barmerge.lookahead_off)
+[cb, cs, cp, co, ce, ca, cent, csl, ctp1, cmh, cml, c_close] = request.security(syminfo.tickerid, scan_tf, f_mb(filter_ema, filter_doji, filter_wicks), lookahead=barmerge.lookahead_off)
 
 // 2. Futures / F&O Selected Stock (Call #2)
 _fut_ticker = syminfo.prefix + ":" + syminfo.root + "1!"
-[fb, fs, fp, fo, fe, fa, fent, fsl, ftp1, fmh, fml, f_close] = request.security(_fut_ticker, scan_tf, f_mb(filter_ema, filter_doji), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
+[fb, fs, fp, fo, fe, fa, fent, fsl, ftp1, fmh, fml, f_close] = request.security(_fut_ticker, scan_tf, f_mb(filter_ema, filter_doji, filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 
 // 3. 38 Multi-Stock Scanner Calls (Calls #3 to #40 -> Exactly 40 total request.security calls)
-[b01,s01,p01,o01,e01,a01] = request.security("NSE:RELIANCE",   scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b02,s02,p02,o02,e02,a02] = request.security("NSE:TCS",        scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b03,s03,p03,o03,e03,a03] = request.security("NSE:HDFCBANK",   scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b04,s04,p04,o04,e04,a04] = request.security("NSE:INFY",       scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b05,s05,p05,o05,e05,a05] = request.security("NSE:ICICIBANK",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b06,s06,p06,o06,e06,a06] = request.security("NSE:HINDUNILVR", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b07,s07,p07,o07,e07,a07] = request.security("NSE:SBIN",       scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b08,s08,p08,o08,e08,a08] = request.security("NSE:BAJFINANCE", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b09,s09,p09,o09,e09,a09] = request.security("NSE:BHARTIARTL", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b10,s10,p10,o10,e10,a10] = request.security("NSE:KOTAKBANK",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b11,s11,p11,o11,e11,a11] = request.security("NSE:LT",         scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b12,s12,p12,o12,e12,a12] = request.security("NSE:HCLTECH",    scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b13,s13,p13,o13,e13,a13] = request.security("NSE:AXISBANK",   scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b14,s14,p14,o14,e14,a14] = request.security("NSE:ASIANPAINT", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b15,s15,p15,o15,e15,a15] = request.security("NSE:MARUTI",     scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b16,s16,p16,o16,e16,a16] = request.security("NSE:SUNPHARMA",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b17,s17,p17,o17,e17,a17] = request.security("NSE:TITAN",      scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b18,s18,p18,o18,e18,a18] = request.security("NSE:ULTRACEMCO", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b19,s19,p19,o19,e19,a19] = request.security("NSE:WIPRO",      scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b20,s20,p20,o20,e20,a20] = request.security("NSE:NESTLEIND",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b21,s21,p21,o21,e21,a21] = request.security("NSE:POWERGRID",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b22,s22,p22,o22,e22,a22] = request.security("NSE:NTPC",       scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b23,s23,p23,o23,e23,a23] = request.security("NSE:ONGC",       scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b24,s24,p24,o24,e24,a24] = request.security("NSE:COALINDIA",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b25,s25,p25,o25,e25,a25] = request.security("NSE:TATAMOTORS", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b26,s26,p26,o26,e26,a26] = request.security("NSE:ADANIPORTS", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b27,s27,p27,o27,e27,a27] = request.security("NSE:TECHM",      scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b28,s28,p28,o28,e28,a28] = request.security("NSE:BAJAJFINSV", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b29,s29,p29,o29,e29,a29] = request.security("NSE:CIPLA",      scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b30,s30,p30,o30,e30,a30] = request.security("NSE:DRREDDY",    scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b31,s31,p31,o31,e31,a31] = request.security("NSE:EICHERMOT",  scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b32,s32,p32,o32,e32,a32] = request.security("NSE:GRASIM",     scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b33,s33,p33,o33,e33,a33] = request.security("NSE:HEROMOTOCO", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b34,s34,p34,o34,e34,a34] = request.security("NSE:HINDALCO",   scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b35,s35,p35,o35,e35,a35] = request.security("NSE:INDUSINDBK", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b36,s36,p36,o36,e36,a36] = request.security("NSE:JSWSTEEL",   scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b37,s37,p37,o37,e37,a37] = request.security("NSE:M_M",        scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
-[b38,s38,p38,o38,e38,a38] = request.security("NSE:SHRIRAMFIN", scan_tf, f_mb_light(filter_ema,filter_doji), lookahead=barmerge.lookahead_off)
+[b01,s01,p01,o01,e01,a01] = request.security("NSE:RELIANCE",   scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b02,s02,p02,o02,e02,a02] = request.security("NSE:TCS",        scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b03,s03,p03,o03,e03,a03] = request.security("NSE:HDFCBANK",   scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b04,s04,p04,o04,e04,a04] = request.security("NSE:INFY",       scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b05,s05,p05,o05,e05,a05] = request.security("NSE:ICICIBANK",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b06,s06,p06,o06,e06,a06] = request.security("NSE:HINDUNILVR", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b07,s07,p07,o07,e07,a07] = request.security("NSE:SBIN",       scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b08,s08,p08,o08,e08,a08] = request.security("NSE:BAJFINANCE", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b09,s09,p09,o09,e09,a09] = request.security("NSE:BHARTIARTL", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b10,s10,p10,o10,e10,a10] = request.security("NSE:KOTAKBANK",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b11,s11,p11,o11,e11,a11] = request.security("NSE:LT",         scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b12,s12,p12,o12,e12,a12] = request.security("NSE:HCLTECH",    scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b13,s13,p13,o13,e13,a13] = request.security("NSE:AXISBANK",   scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b14,s14,p14,o14,e14,a14] = request.security("NSE:ASIANPAINT", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b15,s15,p15,o15,e15,a15] = request.security("NSE:MARUTI",     scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b16,s16,p16,o16,e16,a16] = request.security("NSE:SUNPHARMA",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b17,s17,p17,o17,e17,a17] = request.security("NSE:TITAN",      scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b18,s18,p18,o18,e18,a18] = request.security("NSE:ULTRACEMCO", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b19,s19,p19,o19,e19,a19] = request.security("NSE:WIPRO",      scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b20,s20,p20,o20,e20,a20] = request.security("NSE:NESTLEIND",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b21,s21,p21,o21,e21,a21] = request.security("NSE:POWERGRID",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b22,s22,p22,o22,e22,a22] = request.security("NSE:NTPC",       scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b23,s23,p23,o23,e23,a23] = request.security("NSE:ONGC",       scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b24,s24,p24,o24,e24,a24] = request.security("NSE:COALINDIA",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b25,s25,p25,o25,e25,a25] = request.security("NSE:TATAMOTORS", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b26,s26,p26,o26,e26,a26] = request.security("NSE:ADANIPORTS", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b27,s27,p27,o27,e27,a27] = request.security("NSE:TECHM",      scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b28,s28,p28,o28,e28,a28] = request.security("NSE:BAJAJFINSV", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b29,s29,p29,o29,e29,a29] = request.security("NSE:CIPLA",      scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b30,s30,p30,o30,e30,a30] = request.security("NSE:DRREDDY",    scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b31,s31,p31,o31,e31,a31] = request.security("NSE:EICHERMOT",  scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b32,s32,p32,o32,e32,a32] = request.security("NSE:GRASIM",     scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b33,s33,p33,o33,e33,a33] = request.security("NSE:HEROMOTOCO", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b34,s34,p34,o34,e34,a34] = request.security("NSE:HINDALCO",   scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b35,s35,p35,o35,e35,a35] = request.security("NSE:INDUSINDBK", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b36,s36,p36,o36,e36,a36] = request.security("NSE:JSWSTEEL",   scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b37,s37,p37,o37,e37,a37] = request.security("NSE:M_M",        scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
+[b38,s38,p38,o38,e38,a38] = request.security("NSE:SHRIRAMFIN", scan_tf, f_mb_light(filter_ema,filter_doji,filter_wicks), lookahead=barmerge.lookahead_off)
 
 // ════════════════════════════════════════════════════════════════
 // ALERT CONDITIONS FOR EQUITY, FUTURES & MULTI-STOCK SCANNER

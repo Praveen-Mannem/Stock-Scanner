@@ -17,7 +17,7 @@
 // 10. Real-time Bar-Close Confirmed Alerts
 // ============================================================
 //@version=6
-indicator("Mother & Baby Futures Scanner | F&O", shorttitle="M&B FUT SCAN", overlay=true,
+indicator("Mother & Baby Futures Scanner | F&O", shorttitle="M&B FUT", overlay=true,
           max_bars_back=300, max_lines_count=100, max_labels_count=100)
 
 // ══════════════════════════════════════════════════════════
@@ -233,14 +233,16 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
 
     [_is_mb_pattern, _buy_bo, _sell_bo, _st, _en, _sl, _t1, _t2, _t3, _is_opp_setup, _ema_bull]
 
-f_mb_light(_req_opp, _f_doji, _m_body_pct, _f_ema, _f_wicks) =>
-    [mb, b, s, st, en, sl, t1, t2, t3, opp, up] = f_mb_engine(_req_opp, _f_doji, _m_body_pct, "Mother Bar Boundary", 1.5, 1.5, 2.5, 4.0, _f_ema, false, false, 1.2, _f_wicks)
-    [b, s, mb, opp, up, st == "BULL BO" or st == "BEAR BO" ? 1 : 0]
-
 // ══════════════════════════════════════════════════════════
 // FUTURES SYMBOL AUTO-SYNC (NSE:ROOT1!)
 // ══════════════════════════════════════════════════════════
 _fut_ticker = syminfo.prefix + ":" + syminfo.root + "1!"
+
+f_mb_light(_req_opp, _f_doji, _m_body_pct, _f_ema, _f_wicks) =>
+    [mb, b, s, st, en, sl, t1, t2, t3, opp, up] = f_mb_engine(_req_opp, _f_doji, _m_body_pct, sl_source, sl_mult, 1.5, 2.5, 4.0, _f_ema, filter_rsi, filter_vol, vol_mult, _f_wicks)
+    bool is_b_act = b or (st == "BULL BO")
+    bool is_s_act = s or (st == "BEAR BO")
+    [is_b_act, is_s_act, mb, opp, up, (st == "BULL BO" or st == "BEAR BO") ? 1 : 0]
 
 // ══════════════════════════════════════════════════════════
 // MULTI-TIMEFRAME ANALYSIS FOR FUTURES CONTRACT (15m, 1H, 1D) -> 3 Security Calls
@@ -253,9 +255,6 @@ _fut_ticker = syminfo.prefix + ":" + syminfo.root + "1!"
 
 [mb1d, b1d, s1d, st1d, en1d, sl1d, t1_1d, t2_1d, t3_1d, opp1d, up1d] = request.security(
     _fut_ticker, "D",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
-
-// Daily EMA trend for HTF alignment check -> 1 Security Call
-[_d_ema_bull] = request.security(_fut_ticker, "D", [ta.ema(close, 21) > ta.ema(close, 50)], lookahead=barmerge.lookahead_off, ignore_invalid_symbol=true)
 
 // ══════════════════════════════════════════════════════════
 // CURRENT CHART TIMEFRAME EXECUTION
@@ -273,8 +272,8 @@ _rsi_bear = _rsi < 50
 _vol_ok   = volume > _vm * vol_mult
 
 _is_intraday = timeframe.in_seconds() <= 3600
-_htf_bull    = filter_htf ? (_is_intraday ? _d_ema_bull : _ema_bull) : true
-_htf_bear    = filter_htf ? (_is_intraday ? not _d_ema_bull : _ema_bear) : true
+_htf_bull    = filter_htf ? (_is_intraday ? up1d : _ema_bull) : true
+_htf_bear    = filter_htf ? (_is_intraday ? not up1d : _ema_bear) : true
 
 _m_range = high[1] - low[1]
 _m_body  = math.abs(close[1] - open[1])

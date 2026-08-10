@@ -82,6 +82,7 @@ f_mb(_fe, _fd, _fw) =>
         _mh := na
         _ml := na
         _tr_dir := 0
+        _tr_age := 0
 
     if _im and not _ii and not _is_new_day
         _mh := high[1]

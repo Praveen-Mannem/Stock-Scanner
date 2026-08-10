@@ -246,9 +246,6 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
 [mb1m, b1m, s1m, st1m, en1m, sl1m, t1_1m, t2_1m, t3_1m, opp1m, up1m] = request.security(
     syminfo.tickerid, "M",  f_mb_engine(req_opp_col, filter_doji, min_m_body, sl_source, sl_mult, rr1, rr2, rr3, filter_ema, filter_rsi, filter_vol, vol_mult, filter_wicks), lookahead=barmerge.lookahead_off)
 
-// Daily EMA trend for HTF alignment check
-[_d_ema_bull] = request.security(syminfo.tickerid, "D", [ta.ema(close, 21) > ta.ema(close, 50)], lookahead=barmerge.lookahead_off)
-
 // ══════════════════════════════════════════════════════════
 // CURRENT CHART TIMEFRAME EXECUTION
 // ══════════════════════════════════════════════════════════
@@ -266,8 +263,8 @@ _vol_ok   = volume > _vm * vol_mult
 
 // HTF alignment: for intraday charts (<= 1H), daily trend must agree
 _is_intraday = timeframe.in_seconds() <= 3600
-_htf_bull    = filter_htf ? (_is_intraday ? _d_ema_bull : _ema_bull) : true
-_htf_bear    = filter_htf ? (_is_intraday ? not _d_ema_bull : _ema_bear) : true
+_htf_bull    = filter_htf ? (_is_intraday ? up1d : _ema_bull) : true
+_htf_bear    = filter_htf ? (_is_intraday ? not up1d : _ema_bear) : true
 
 // Current TF Pattern Detection
 _m_range = high[1] - low[1]

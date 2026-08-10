@@ -346,6 +346,7 @@ var table tb = table.new(_spos, 10, 25,
 
 if barstate.islast and show_scan
     syms  = array.from("RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN","BAJFINANCE","BHARTIARTL","KOTAKBANK","LT","HCLTECH","AXISBANK","ASIANPAINT","MARUTI","SUNPHARMA","TITAN","ULTRACEMCO","WIPRO","NESTLEIND","POWERGRID","NTPC","ONGC","COALINDIA","TATAMOTORS","ADANIPORTS","TECHM","BAJAJFINSV","CIPLA","DRREDDY","EICHERMOT","GRASIM","HEROMOTOCO","HINDALCO","INDUSINDBK","JSWSTEEL","M&M","SHRIRAMFIN")
+    raws  = array.from("NSE:RELIANCE","NSE:TCS","NSE:HDFCBANK","NSE:INFY","NSE:ICICIBANK","NSE:HINDUNILVR","NSE:SBIN","NSE:BAJFINANCE","NSE:BHARTIARTL","NSE:KOTAKBANK","NSE:LT","NSE:HCLTECH","NSE:AXISBANK","NSE:ASIANPAINT","NSE:MARUTI","NSE:SUNPHARMA","NSE:TITAN","NSE:ULTRACEMCO","NSE:WIPRO","NSE:NESTLEIND","NSE:POWERGRID","NSE:NTPC","NSE:ONGC","NSE:COALINDIA","NSE:TATAMOTORS","NSE:ADANIPORTS","NSE:TECHM","NSE:BAJAJFINSV","NSE:CIPLA","NSE:DRREDDY","NSE:EICHERMOT","NSE:GRASIM","NSE:HEROMOTOCO","NSE:HINDALCO","NSE:INDUSINDBK","NSE:JSWSTEEL","NSE:M_M","NSE:SHRIRAMFIN")
     buys  = array.from(b01,b02,b03,b04,b05,b06,b07,b08,b09,b10,b11,b12,b13,b14,b15,b16,b17,b18,b19,b20,b21,b22,b23,b24,b25,b26,b27,b28,b29,b30,b31,b32,b33,b34,b35,b36,b37,b38)
     sells = array.from(s01,s02,s03,s04,s05,s06,s07,s08,s09,s10,s11,s12,s13,s14,s15,s16,s17,s18,s19,s20,s21,s22,s23,s24,s25,s26,s27,s28,s29,s30,s31,s32,s33,s34,s35,s36,s37,s38)
     pats  = array.from(p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32,p33,p34,p35,p36,p37,p38)
@@ -355,6 +356,7 @@ if barstate.islast and show_scan
 
     // Gather active list in priority order
     act_sym  = array.new_string(0)
+    act_raw  = array.new_string(0)
     act_type = array.new_int(0) // 1=BUY, 2=SELL, 3=INSIDE, 4=NONE
     act_opp  = array.new_bool(0)
     act_ema  = array.new_bool(0)
@@ -369,6 +371,7 @@ if barstate.islast and show_scan
         if array.get(buys, i)
             nb += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
+            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 1)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -379,6 +382,7 @@ if barstate.islast and show_scan
         if array.get(sells, i)
             ns += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
+            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 2)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -390,6 +394,7 @@ if barstate.islast and show_scan
             if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
                 ni += 1
                 array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                array.push(act_raw, array.get(raws, i))
                 array.push(act_type, 3)
                 array.push(act_opp, array.get(opps, i))
                 array.push(act_ema, array.get(emas, i))
@@ -400,6 +405,7 @@ if barstate.islast and show_scan
         for i = 0 to array.size(syms) - 1
             if not array.get(buys, i) and not array.get(sells, i) and not array.get(pats, i)
                 array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                array.push(act_raw, array.get(raws, i))
                 array.push(act_type, 4)
                 array.push(act_opp, false)
                 array.push(act_ema, array.get(emas, i))
@@ -438,11 +444,15 @@ if barstate.islast and show_scan
             // ── LEFT COLUMN ITEM ──
             if k < total_items
                 _stk  = array.get(act_sym, k)
+                _raw  = array.get(act_raw, k)
                 _typ  = array.get(act_type, k)
                 _cop  = array.get(act_opp, k)
                 _cem  = array.get(act_ema, k)
                 _cage = array.get(act_age, k)
 
+                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
+                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
+
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM
                 string _sig= _typ == 1 ? (_cage == 0 ? "▲ BUY" : "▲ BUY (" + str.tostring(_cage) + "b)") : _typ == 2 ? (_cage == 0 ? "▼ SELL" : "▼ SELL (" + str.tostring(_cage) + "b)") : _typ == 3 ? "◆ INSIDE" : "— NONE"
@@ -454,20 +464,24 @@ if barstate.islast and show_scan
                 color _base_bg = C_NO_BG
                 color _stk_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_WHITE
 
-                table.cell(tb, 0, r, str.tostring(k + 1),  text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize)
-                table.cell(tb, 1, r, _stk,                  text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left)
-                table.cell(tb, 2, r, _sig,                  text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize)
-                table.cell(tb, 3, r, _trd,                  text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize)
-                table.cell(tb, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize)
+                table.cell(tb, 0, r, str.tostring(k + 1),  text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 1, r, _stk,                  text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left, tooltip=_tip)
+                table.cell(tb, 2, r, _sig,                  text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 3, r, _trd,                  text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize, tooltip=_tip)
 
             // ── RIGHT COLUMN ITEM ──
             int r_idx = half + k
             if r_idx < total_items
                 _stk  = array.get(act_sym, r_idx)
+                _raw  = array.get(act_raw, r_idx)
                 _typ  = array.get(act_type, r_idx)
                 _cop  = array.get(act_opp, r_idx)
                 _cem  = array.get(act_ema, r_idx)
                 _cage = array.get(act_age, r_idx)
+
+                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
+                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
 
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM
@@ -480,8 +494,8 @@ if barstate.islast and show_scan
                 color _base_bg = C_NO_BG
                 color _stk_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_WHITE
 
-                table.cell(tb, 0, r, str.tostring(r_idx + 1), text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize)
-                table.cell(tb, 6, r, _stk,                     text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left)
-                table.cell(tb, 7, r, _sig,                     text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize)
-                table.cell(tb, 8, r, _trd,                     text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize)
-                table.cell(tb, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize)
+                table.cell(tb, 5, r, str.tostring(r_idx + 1), text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 6, r, _stk,                     text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left, tooltip=_tip)
+                table.cell(tb, 7, r, _sig,                     text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 8, r, _trd,                     text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize, tooltip=_tip)

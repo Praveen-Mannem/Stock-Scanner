@@ -554,7 +554,19 @@ if _sell_sig
         _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
         _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
 
+var line _line_mh = na
+var line _line_ml = na
+var label _lbl_mh  = na
+var label _lbl_ml  = na
+
+_del_ib_lines() =>
+    line.delete(_line_mh)
+    line.delete(_line_ml)
+    label.delete(_lbl_mh)
+    label.delete(_lbl_ml)
+
 if _tdir != "NONE"
+    _del_ib_lines()
     if show_zones and not na(_zl_en) and barstate.islast
         _nx = bar_index + zone_ext
         line.set_x2(_zl_en, _nx)
@@ -577,7 +589,7 @@ if _tdir != "NONE"
             _tp3hit := true
         if not _slhit and low <= _tsl
             _slhit := true
-        if _ema_bear or low <= _tsl or high >= _ttp1
+        if low <= _tsl or high >= _ttp3 or _ema_bear
             _del_zones()
             _tdir := "NONE"
 
@@ -590,9 +602,20 @@ if _tdir != "NONE"
             _tp3hit := true
         if not _slhit and high >= _tsl
             _slhit := true
-        if _ema_bull or high >= _tsl or low <= _ttp1
+        if high >= _tsl or low <= _ttp3 or _ema_bull
             _del_zones()
             _tdir := "NONE"
+
+if show_zones and _in_ib and (_tdir == "NONE") and barstate.islast and not na(_m_high) and not na(_m_low)
+    _del_ib_lines()
+    _x2 = bar_index + zone_ext
+    _lx = _x2 + 1
+    _line_mh := line.new(bar_index, _m_high, _x2, _m_high, color=color.new(#00e676, 20), width=2, style=line.style_dashed)
+    _line_ml := line.new(bar_index, _m_low,  _x2, _m_low,  color=color.new(#ff1744, 20), width=2, style=line.style_dashed)
+    _lbl_mh  := label.new(_lx, _m_high, "BUY ABOVE " + _fmt(_m_high), style=label.style_label_left, color=color.new(#1b5e20, 20), textcolor=color.lime, size=size.small)
+    _lbl_ml  := label.new(_lx, _m_low,  "SELL BELOW " + _fmt(_m_low), style=label.style_label_left, color=color.new(#b71c1c, 20), textcolor=color.red,  size=size.small)
+else if not _in_ib
+    _del_ib_lines()
 
 // ══════════════════════════════════════════════════════════
 // MTF FUTURES TABLE (15m, 1H, 1D)

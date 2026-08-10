@@ -398,6 +398,12 @@ var float[] _tp1_arr = array.new_float(0)
 var int[]   _dir_arr = array.new_int(0)
 var bool[]  _act_arr = array.new_bool(0)
 
+if show_labels and _is_mb_pattern
+    _ib_tag = "📦 INSIDE BAR (" + (_ema_bull ? "BULL" : "BEAR") + ")" + (_is_opp_color ? " 🔥" : "")
+    label.new(bar_index, high, _ib_tag, style=label.style_label_down,
+              color=color.new(#e65100, 10), textcolor=color.white, size=size.small,
+              tooltip="📦 INSIDE BAR PATTERN FORMED!\nMother High: " + _fmt(high[1]) + "\nMother Low: " + _fmt(low[1]) + "\nAwaiting Breakout...")
+
 if show_labels and _buy_sig
     _sl_dist = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
                sl_source == "ATR Multiplier" ? sl_mult * _atr :

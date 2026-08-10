@@ -346,7 +346,6 @@ var table tb = table.new(_spos, 10, 25,
 
 if barstate.islast and show_scan
     syms  = array.from("RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN","BAJFINANCE","BHARTIARTL","KOTAKBANK","LT","HCLTECH","AXISBANK","ASIANPAINT","MARUTI","SUNPHARMA","TITAN","ULTRACEMCO","WIPRO","NESTLEIND","POWERGRID","NTPC","ONGC","COALINDIA","TATAMOTORS","ADANIPORTS","TECHM","BAJAJFINSV","CIPLA","DRREDDY","EICHERMOT","GRASIM","HEROMOTOCO","HINDALCO","INDUSINDBK","JSWSTEEL","M&M","SHRIRAMFIN")
-    raws  = array.from("NSE:RELIANCE","NSE:TCS","NSE:HDFCBANK","NSE:INFY","NSE:ICICIBANK","NSE:HINDUNILVR","NSE:SBIN","NSE:BAJFINANCE","NSE:BHARTIARTL","NSE:KOTAKBANK","NSE:LT","NSE:HCLTECH","NSE:AXISBANK","NSE:ASIANPAINT","NSE:MARUTI","NSE:SUNPHARMA","NSE:TITAN","NSE:ULTRACEMCO","NSE:WIPRO","NSE:NESTLEIND","NSE:POWERGRID","NSE:NTPC","NSE:ONGC","NSE:COALINDIA","NSE:TATAMOTORS","NSE:ADANIPORTS","NSE:TECHM","NSE:BAJAJFINSV","NSE:CIPLA","NSE:DRREDDY","NSE:EICHERMOT","NSE:GRASIM","NSE:HEROMOTOCO","NSE:HINDALCO","NSE:INDUSINDBK","NSE:JSWSTEEL","NSE:M_M","NSE:SHRIRAMFIN")
     buys  = array.from(b01,b02,b03,b04,b05,b06,b07,b08,b09,b10,b11,b12,b13,b14,b15,b16,b17,b18,b19,b20,b21,b22,b23,b24,b25,b26,b27,b28,b29,b30,b31,b32,b33,b34,b35,b36,b37,b38)
     sells = array.from(s01,s02,s03,s04,s05,s06,s07,s08,s09,s10,s11,s12,s13,s14,s15,s16,s17,s18,s19,s20,s21,s22,s23,s24,s25,s26,s27,s28,s29,s30,s31,s32,s33,s34,s35,s36,s37,s38)
     pats  = array.from(p01,p02,p03,p04,p05,p06,p07,p08,p09,p10,p11,p12,p13,p14,p15,p16,p17,p18,p19,p20,p21,p22,p23,p24,p25,p26,p27,p28,p29,p30,p31,p32,p33,p34,p35,p36,p37,p38)
@@ -356,7 +355,6 @@ if barstate.islast and show_scan
 
     // Gather active list in priority order
     act_sym  = array.new_string(0)
-    act_raw  = array.new_string(0)
     act_type = array.new_int(0) // 1=BUY, 2=SELL, 3=INSIDE, 4=NONE
     act_opp  = array.new_bool(0)
     act_ema  = array.new_bool(0)
@@ -371,7 +369,6 @@ if barstate.islast and show_scan
         if array.get(buys, i)
             nb += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
-            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 1)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -382,7 +379,6 @@ if barstate.islast and show_scan
         if array.get(sells, i)
             ns += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
-            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 2)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -394,7 +390,6 @@ if barstate.islast and show_scan
             if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
                 ni += 1
                 array.push(act_sym, array.get(syms, i) + _lbl_suf)
-                array.push(act_raw, array.get(raws, i))
                 array.push(act_type, 3)
                 array.push(act_opp, array.get(opps, i))
                 array.push(act_ema, array.get(emas, i))
@@ -405,7 +400,6 @@ if barstate.islast and show_scan
         for i = 0 to array.size(syms) - 1
             if not array.get(buys, i) and not array.get(sells, i) and not array.get(pats, i)
                 array.push(act_sym, array.get(syms, i) + _lbl_suf)
-                array.push(act_raw, array.get(raws, i))
                 array.push(act_type, 4)
                 array.push(act_opp, false)
                 array.push(act_ema, array.get(emas, i))

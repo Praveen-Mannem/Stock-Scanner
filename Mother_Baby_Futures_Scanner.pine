@@ -718,7 +718,6 @@ var table tb_scan = table.new(_scan_tbl_pos, 10, 24,
 
 if barstate.islast and show_scan
     syms  = array.from("RELIANCE FUT","TCS FUT","HDFCBANK FUT","INFY FUT","ICICIBANK FUT","HINDUNILVR FUT","SBIN FUT","BAJFINANCE FUT","BHARTIARTL FUT","KOTAKBANK FUT","LT FUT","HCLTECH FUT","AXISBANK FUT","ASIANPAINT FUT","MARUTI FUT","SUNPHARMA FUT","TITAN FUT","ULTRACEMCO FUT","WIPRO FUT","TATAMOTORS FUT","POWERGRID FUT","NTPC FUT","ONGC FUT","COALINDIA FUT","ADANIPORTS FUT","TECHM FUT","BAJAJFINSV FUT","CIPLA FUT","DRREDDY FUT","EICHERMOT FUT","GRASIM FUT","HEROMOTOCO FUT","HINDALCO FUT","INDUSINDBK FUT","JSWSTEEL FUT","M_M FUT")
-    raws  = array.from("NSE:RELIANCE1!","NSE:TCS1!","NSE:HDFCBANK1!","NSE:INFY1!","NSE:ICICIBANK1!","NSE:HINDUNILVR1!","NSE:SBIN1!","NSE:BAJFINANCE1!","NSE:BHARTIARTL1!","NSE:KOTAKBANK1!","NSE:LT1!","NSE:HCLTECH1!","NSE:AXISBANK1!","NSE:ASIANPAINT1!","NSE:MARUTI1!","NSE:SUNPHARMA1!","NSE:TITAN1!","NSE:ULTRACEMCO1!","NSE:WIPRO1!","NSE:TATAMOTORS1!","NSE:POWERGRID1!","NSE:NTPC1!","NSE:ONGC1!","NSE:COALINDIA1!","NSE:ADANIPORTS1!","NSE:TECHM1!","NSE:BAJAJFINSV1!","NSE:CIPLA1!","NSE:DRREDDY1!","NSE:EICHERMOT1!","NSE:GRASIM1!","NSE:HEROMOTOCO1!","NSE:HINDALCO1!","NSE:INDUSINDBK1!","NSE:JSWSTEEL1!","NSE:M_M1!")
     buys  = array.from(fb01,fb02,fb03,fb04,fb05,fb06,fb07,fb08,fb09,fb10,fb11,fb12,fb13,fb14,fb15,fb16,fb17,fb18,fb19,fb20,fb21,fb22,fb23,fb24,fb25,fb26,fb27,fb28,fb29,fb30,fb31,fb32,fb33,fb34,fb35,fb36)
     sells = array.from(fs01,fs02,fs03,fs04,fs05,fs06,fs07,fs08,fs09,fs10,fs11,fs12,fs13,fs14,fs15,fs16,fs17,fs18,fs19,fs20,fs21,fs22,fs23,fs24,fs25,fs26,fs27,fs28,fs29,fs30,fs31,fs32,fs33,fs34,fs35,fs36)
     pats  = array.from(fp01,fp02,fp03,fp04,fp05,fp06,fp07,fp08,fp09,fp10,fp11,fp12,fp13,fp14,fp15,fp16,fp17,fp18,fp19,fp20,fp21,fp22,fp23,fp24,fp25,fp26,fp27,fp28,fp29,fp30,fp31,fp32,fp33,fp34,fp35,fp36)
@@ -727,7 +726,6 @@ if barstate.islast and show_scan
     acts  = array.from(fa01,fa02,fa03,fa04,fa05,fa06,fa07,fa08,fa09,fa10,fa11,fa12,fa13,fa14,fa15,fa16,fa17,fa18,fa19,fa20,fa21,fa22,fa23,fa24,fa25,fa26,fa27,fa28,fa29,fa30,fa31,fa32,fa33,fa34,fa35,fa36)
 
     act_sym  = array.new_string(0)
-    act_raw  = array.new_string(0)
     act_type = array.new_int(0) // 1=BUY, 2=SELL, 3=INSIDE, 4=NONE
     act_opp  = array.new_bool(0)
     act_ema  = array.new_bool(0)
@@ -742,7 +740,6 @@ if barstate.islast and show_scan
         if array.get(buys, i)
             nb += 1
             array.push(act_sym, array.get(syms, i))
-            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 1)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -753,7 +750,6 @@ if barstate.islast and show_scan
         if array.get(sells, i)
             ns += 1
             array.push(act_sym, array.get(syms, i))
-            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 2)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -764,7 +760,6 @@ if barstate.islast and show_scan
         if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
             ni += 1
             array.push(act_sym, array.get(syms, i))
-            array.push(act_raw, array.get(raws, i))
             array.push(act_type, 3)
             array.push(act_opp, array.get(opps, i))
             array.push(act_ema, array.get(emas, i))
@@ -801,12 +796,9 @@ if barstate.islast and show_scan
             // LEFT COLUMN
             if k < total_items
                 _stk  = array.get(act_sym, k)
-                _raw  = array.get(act_raw, k)
                 _typ  = array.get(act_type, k)
                 _cop  = array.get(act_opp, k)
                 _cem  = array.get(act_ema, k)
-
-                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 // Dedicated Signal Cell Styling
                 color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)
@@ -822,22 +814,19 @@ if barstate.islast and show_scan
                 color _base_bg = color.new(#12122a, 20)
                 color _stk_txt = _typ == 1 ? color.new(#00e676, 0) : _typ == 2 ? color.new(#ff1744, 0) : _typ == 3 ? color.new(#ffd600, 0) : color.white
 
-                table.cell(tb_scan, 0, r, str.tostring(k + 1),  text_color=color.white, bgcolor=_base_bg, text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 1, r, _stk,                  text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left, tooltip=_tip)
-                table.cell(tb_scan, 2, r, _sig,                  text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 3, r, _trd,                  text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small, tooltip=_tip)
+                table.cell(tb_scan, 0, r, str.tostring(k + 1),  text_color=color.white, bgcolor=_base_bg, text_size=size.small)
+                table.cell(tb_scan, 1, r, _stk,                  text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 2, r, _sig,                  text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small)
+                table.cell(tb_scan, 3, r, _trd,                  text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small)
+                table.cell(tb_scan, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small)
 
             // RIGHT COLUMN
             int r_idx = half + k
             if r_idx < total_items
                 _stk  = array.get(act_sym, r_idx)
-                _raw  = array.get(act_raw, r_idx)
                 _typ  = array.get(act_type, r_idx)
                 _cop  = array.get(act_opp, r_idx)
                 _cem  = array.get(act_ema, r_idx)
-
-                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 // Dedicated Signal Cell Styling
                 color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)
@@ -853,11 +842,11 @@ if barstate.islast and show_scan
                 color _base_bg = color.new(#12122a, 20)
                 color _stk_txt = _typ == 1 ? color.new(#00e676, 0) : _typ == 2 ? color.new(#ff1744, 0) : _typ == 3 ? color.new(#ffd600, 0) : color.white
 
-                table.cell(tb_scan, 5, r, str.tostring(r_idx + 1), text_color=color.white, bgcolor=_base_bg, text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 6, r, _stk,                     text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left, tooltip=_tip)
-                table.cell(tb_scan, 7, r, _sig,                     text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 8, r, _trd,                     text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small, tooltip=_tip)
-                table.cell(tb_scan, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small, tooltip=_tip)
+                table.cell(tb_scan, 5, r, str.tostring(r_idx + 1), text_color=color.white, bgcolor=_base_bg, text_size=size.small)
+                table.cell(tb_scan, 6, r, _stk,                     text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 7, r, _sig,                     text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small)
+                table.cell(tb_scan, 8, r, _trd,                     text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small)
+                table.cell(tb_scan, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small)
 
 // ══════════════════════════════════════════════════════════
 // REAL-TIME ALERTS FOR FUTURES

@@ -288,6 +288,7 @@ _is_baby_green   = close > open
 
 _is_opp_color  = (_is_mother_red and _is_baby_green) or (_is_mother_green and _is_baby_red)
 _color_valid   = not req_opp_col or _is_opp_color
+_is_chart_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
 _is_mb_pattern = _is_mother_valid and _is_baby_inside and _color_valid
 
 // Chart Candle Coloring for Mother & Baby
@@ -343,8 +344,6 @@ var bool   _in_ib  = false
 var bool   _is_opp_setup = false
 var string _tdir   = "NONE"
 
-_is_chart_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
-
 if _is_chart_new_day
     _in_ib := false
     _m_high := na
@@ -353,15 +352,15 @@ if _is_chart_new_day
         _del_zones()
         _tdir := "NONE"
 
-if _is_mb_pattern and not _in_ib and (_tdir == "NONE") and not _is_chart_new_day
+if _is_mb_pattern and not _in_ib and (_tdir == "NONE")
     _m_high := high[1]
     _m_low  := low[1]
     _in_ib  := true
     _is_opp_setup := _is_opp_color
-else if _in_ib and (high <= _m_high) and (low >= _m_low) and not _is_chart_new_day
+else if _in_ib and (high <= _m_high) and (low >= _m_low)
     _in_ib := true
 else
-    if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_chart_new_day)
+    if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low)
         _in_ib := false
 
 // Breakout Candle Wick Rejection Filter
@@ -369,8 +368,8 @@ float _bo_rng = high - low
 bool _valid_buy_wick = not filter_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
 bool _valid_sel_wick = not filter_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
 
-_raw_buy  = _in_ib[1] and not _is_chart_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
-_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
+_raw_buy  = _in_ib[1] and (close > _m_high) and (close > open) and _valid_buy_wick
+_raw_sell = _in_ib[1] and (close < _m_low)  and (close < open)  and _valid_sel_wick
 
 _buy_sig  = _raw_buy and (_tdir == "NONE") and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
 _sell_sig = _raw_sell and (_tdir == "NONE") and (filter_ema ? _ema_bear : true) and (filter_rsi ? _rsi_bear : true) and (filter_vol ? _vol_ok : true) and _htf_bear
@@ -397,12 +396,6 @@ var float[] _sl_arr  = array.new_float(0)
 var float[] _tp1_arr = array.new_float(0)
 var int[]   _dir_arr = array.new_int(0)
 var bool[]  _act_arr = array.new_bool(0)
-
-if show_labels and _is_mb_pattern
-    _ib_tag = "📦 INSIDE BAR (" + (_ema_bull ? "BULL" : "BEAR") + ")" + (_is_opp_color ? " 🔥" : "")
-    label.new(bar_index, high, _ib_tag, style=label.style_label_down,
-              color=color.new(#e65100, 10), textcolor=color.white, size=size.small,
-              tooltip="📦 INSIDE BAR PATTERN FORMED!\nMother High: " + _fmt(high[1]) + "\nMother Low: " + _fmt(low[1]) + "\nAwaiting Breakout...")
 
 if show_labels and _buy_sig
     _sl_dist = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) :
@@ -465,13 +458,7 @@ if array.size(_lbl_arr) > 0
             _sl  = array.get(_sl_arr, i)
             _lbl = array.get(_lbl_arr, i)
 
-            if _is_chart_new_day
-                array.set(_act_arr, i, false)
-                label.set_text(_lbl, "⏱️ " + (_dir == 1 ? "BUY" : "SELL") + " (CLOSED - PREV DAY)")
-                label.set_color(_lbl, color.new(color.gray, 20))
-                label.set_textcolor(_lbl, color.white)
-                label.set_size(_lbl, size.small)
-            else if _dir == 1
+            if _dir == 1
                 if high >= _tp
                     array.set(_act_arr, i, false)
                     label.set_text(_lbl, "✅ BUY (CLOSED - TP)")

@@ -124,7 +124,8 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3,
     var bool  _is_opp_setup = false
 
     // Session / New Day Reset: Invalidate yesterday's inside bars on gap open / new day
-    _is_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
+    _day_chg = ta.change(time("D"))
+    _is_new_day = timeframe.isintraday and not na(_day_chg) and (_day_chg != 0)
 
     var bool _tr_act = false
     var int  _tr_dir = 0
@@ -288,7 +289,8 @@ _is_baby_green   = close > open
 
 _is_opp_color  = (_is_mother_red and _is_baby_green) or (_is_mother_green and _is_baby_red)
 _color_valid   = not req_opp_col or _is_opp_color
-_is_chart_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
+_chart_day_chg = ta.change(time("D"))
+_is_chart_new_day = timeframe.isintraday and not na(_chart_day_chg) and (_chart_day_chg != 0)
 _is_mb_pattern = _is_mother_valid and _is_baby_inside and _color_valid
 
 // Chart Candle Coloring for Mother & Baby

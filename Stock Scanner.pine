@@ -74,7 +74,8 @@ f_mb(_fe, _fd, _fw) =>
     var int   _tr_age = 0   // Bars active
 
     // Session / New Day Reset: Invalidate yesterday's inside bars and active trades on gap open / new day
-    _is_new_day = timeframe.isintraday and (ta.change(time("D")) != 0)
+    _day_chg = ta.change(time("D"))
+    _is_new_day = timeframe.isintraday and not na(_day_chg) and (_day_chg != 0)
 
     if _is_new_day
         _ii := false
@@ -493,14 +494,11 @@ if barstate.islast and show_scan
             // ── LEFT COLUMN ITEM ──
             if k < total_items
                 _stk  = array.get(act_sym, k)
-                _raw  = array.get(act_raw, k)
                 _typ  = array.get(act_type, k)
                 _cop  = array.get(act_opp, k)
                 _cem  = array.get(act_ema, k)
                 _cage = array.get(act_age, k)
 
-                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
-
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM
                 string _sig= _typ == 1 ? (_cage == 0 ? "▲ BUY" : "▲ BUY (" + str.tostring(_cage) + "b)") : _typ == 2 ? (_cage == 0 ? "▼ SELL" : "▼ SELL (" + str.tostring(_cage) + "b)") : _typ == 3 ? "◆ INSIDE" : "— NONE"
@@ -512,23 +510,20 @@ if barstate.islast and show_scan
                 color _base_bg = C_NO_BG
                 color _stk_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_WHITE
 
-                table.cell(tb, 0, r, str.tostring(k + 1),  text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 1, r, _stk,                  text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left, tooltip=_tip)
-                table.cell(tb, 2, r, _sig,                  text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 3, r, _trd,                  text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 0, r, str.tostring(k + 1),  text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize)
+                table.cell(tb, 1, r, _stk,                  text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb, 2, r, _sig,                  text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize)
+                table.cell(tb, 3, r, _trd,                  text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize)
+                table.cell(tb, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize)
 
             // ── RIGHT COLUMN ITEM ──
             int r_idx = half + k
             if r_idx < total_items
                 _stk  = array.get(act_sym, r_idx)
-                _raw  = array.get(act_raw, r_idx)
                 _typ  = array.get(act_type, r_idx)
                 _cop  = array.get(act_opp, r_idx)
                 _cem  = array.get(act_ema, r_idx)
                 _cage = array.get(act_age, r_idx)
-
-                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM
@@ -541,8 +536,8 @@ if barstate.islast and show_scan
                 color _base_bg = C_NO_BG
                 color _stk_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_WHITE
 
-                table.cell(tb, 5, r, str.tostring(r_idx + 1), text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 6, r, _stk,                     text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left, tooltip=_tip)
-                table.cell(tb, 7, r, _sig,                     text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 8, r, _trd,                     text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize, tooltip=_tip)
-                table.cell(tb, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize, tooltip=_tip)
+                table.cell(tb, 5, r, str.tostring(r_idx + 1), text_color=C_WHITE,  bgcolor=_base_bg, text_size=_tsize)
+                table.cell(tb, 6, r, _stk,                     text_color=_stk_txt, bgcolor=_base_bg, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb, 7, r, _sig,                     text_color=_sig_txt, bgcolor=_sig_bg,  text_size=_tsize)
+                table.cell(tb, 8, r, _trd,                     text_color=_trd_txt, bgcolor=_trd_bg,  text_size=_tsize)
+                table.cell(tb, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? C_GOLD : C_DIM, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=_tsize)

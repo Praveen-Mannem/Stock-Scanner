@@ -800,15 +800,25 @@ if barstate.islast and show_scan
                 _cop  = array.get(act_opp, k)
                 _cem  = array.get(act_ema, k)
 
-                color _bg  = _typ == 1 ? color.new(#1b5e20, 20)  : _typ == 2 ? color.new(#b71c1c, 20)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(color.black, 80)
-                color _txt = _typ == 1 ? color.lime : _typ == 2 ? color.red  : _typ == 3 ? color.yellow : color.gray
-                string _sig= _typ == 1 ? "▲ BUY (FUT)" : _typ == 2 ? "▼ SELL (FUT)" : _typ == 3 ? "◆ INSIDE" : "— NONE"
+                // Dedicated Signal Cell Styling
+                color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)
+                color _sig_txt = _typ == 1 ? color.new(#00e676, 0)   : _typ == 2 ? color.new(#ff1744, 0)   : _typ == 3 ? color.new(#ffd600, 0)  : color.gray
+                string _sig   = _typ == 1 ? "▲ BUY" : _typ == 2 ? "▼ SELL" : _typ == 3 ? "◆ INSIDE" : "— NONE"
 
-                table.cell(tb_scan, 0, r, str.tostring(k + 1),  text_color=_txt, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 1, r, _stk,                  text_color=_txt, bgcolor=_bg, text_size=size.small, text_halign=text.align_left)
-                table.cell(tb_scan, 2, r, _sig,                  text_color=_txt, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 3, r, _cem ? "BULL":"BEAR",  text_color=_cem ? color.lime : color.red, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 4, r, _cop ? "🔥HIGH":"—",   text_color=_cop ? color.yellow : color.gray, bgcolor=_bg, text_size=size.small)
+                // Dedicated Trend Cell Styling (Vibrant Green for BULL, Red for BEAR)
+                color _trd_bg  = _cem ? color.new(#1b5e20, 10) : color.new(#b71c1c, 10)
+                color _trd_txt = _cem ? color.new(#00e676, 0)  : color.new(#ff1744, 0)
+                string _trd    = _cem ? "🟢 BULL" : "🔴 BEAR"
+
+                // Base Row Background
+                color _base_bg = color.new(#12122a, 20)
+                color _stk_txt = _typ == 1 ? color.new(#00e676, 0) : _typ == 2 ? color.new(#ff1744, 0) : _typ == 3 ? color.new(#ffd600, 0) : color.white
+
+                table.cell(tb_scan, 0, r, str.tostring(k + 1),  text_color=color.white, bgcolor=_base_bg, text_size=size.small)
+                table.cell(tb_scan, 1, r, _stk,                  text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 2, r, _sig,                  text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small)
+                table.cell(tb_scan, 3, r, _trd,                  text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small)
+                table.cell(tb_scan, 4, r, _cop ? "🔥 HIGH":"—",  text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small)
 
             // RIGHT COLUMN
             int r_idx = half + k
@@ -818,15 +828,25 @@ if barstate.islast and show_scan
                 _cop  = array.get(act_opp, r_idx)
                 _cem  = array.get(act_ema, r_idx)
 
-                color _bg  = _typ == 1 ? color.new(#1b5e20, 20)  : _typ == 2 ? color.new(#b71c1c, 20)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(color.black, 80)
-                color _txt = _typ == 1 ? color.lime : _typ == 2 ? color.red  : _typ == 3 ? color.yellow : color.gray
-                string _sig= _typ == 1 ? "▲ BUY (FUT)" : _typ == 2 ? "▼ SELL (FUT)" : _typ == 3 ? "◆ INSIDE" : "— NONE"
+                // Dedicated Signal Cell Styling
+                color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)
+                color _sig_txt = _typ == 1 ? color.new(#00e676, 0)   : _typ == 2 ? color.new(#ff1744, 0)   : _typ == 3 ? color.new(#ffd600, 0)  : color.gray
+                string _sig   = _typ == 1 ? "▲ BUY" : _typ == 2 ? "▼ SELL" : _typ == 3 ? "◆ INSIDE" : "— NONE"
 
-                table.cell(tb_scan, 5, r, str.tostring(r_idx + 1), text_color=_txt, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 6, r, _stk,                     text_color=_txt, bgcolor=_bg, text_size=size.small, text_halign=text.align_left)
-                table.cell(tb_scan, 7, r, _sig,                     text_color=_txt, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 8, r, _cem ? "BULL":"BEAR",     text_color=_cem ? color.lime : color.red, bgcolor=_bg, text_size=size.small)
-                table.cell(tb_scan, 9, r, _cop ? "🔥HIGH":"—",      text_color=_cop ? color.yellow : color.gray, bgcolor=_bg, text_size=size.small)
+                // Dedicated Trend Cell Styling (Vibrant Green for BULL, Red for BEAR)
+                color _trd_bg  = _cem ? color.new(#1b5e20, 10) : color.new(#b71c1c, 10)
+                color _trd_txt = _cem ? color.new(#00e676, 0)  : color.new(#ff1744, 0)
+                string _trd    = _cem ? "🟢 BULL" : "🔴 BEAR"
+
+                // Base Row Background
+                color _base_bg = color.new(#12122a, 20)
+                color _stk_txt = _typ == 1 ? color.new(#00e676, 0) : _typ == 2 ? color.new(#ff1744, 0) : _typ == 3 ? color.new(#ffd600, 0) : color.white
+
+                table.cell(tb_scan, 5, r, str.tostring(r_idx + 1), text_color=color.white, bgcolor=_base_bg, text_size=size.small)
+                table.cell(tb_scan, 6, r, _stk,                     text_color=_stk_txt,    bgcolor=_base_bg, text_size=size.small, text_halign=text.align_left)
+                table.cell(tb_scan, 7, r, _sig,                     text_color=_sig_txt,    bgcolor=_sig_bg,  text_size=size.small)
+                table.cell(tb_scan, 8, r, _trd,                     text_color=_trd_txt,    bgcolor=_trd_bg,  text_size=size.small)
+                table.cell(tb_scan, 9, r, _cop ? "🔥 HIGH":"—",     text_color=_cop ? color.new(#ffd700, 0) : color.gray, bgcolor=_cop ? color.new(#f57f17, 30) : _base_bg, text_size=size.small)
 
 // ══════════════════════════════════════════════════════════
 // REAL-TIME ALERTS FOR FUTURES

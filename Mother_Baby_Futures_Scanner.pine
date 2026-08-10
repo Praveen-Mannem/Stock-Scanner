@@ -806,8 +806,7 @@ if barstate.islast and show_scan
                 _cop  = array.get(act_opp, k)
                 _cem  = array.get(act_ema, k)
 
-                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
-                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
+                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 // Dedicated Signal Cell Styling
                 color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)
@@ -838,8 +837,7 @@ if barstate.islast and show_scan
                 _cop  = array.get(act_opp, r_idx)
                 _cem  = array.get(act_ema, r_idx)
 
-                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
-                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
+                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 // Dedicated Signal Cell Styling
                 color _sig_bg  = _typ == 1 ? color.new(#1b5e20, 10)  : _typ == 2 ? color.new(#b71c1c, 10)  : _typ == 3 ? color.new(#e65100, 20)  : color.new(#12122a, 30)

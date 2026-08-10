@@ -450,8 +450,7 @@ if barstate.islast and show_scan
                 _cem  = array.get(act_ema, k)
                 _cage = array.get(act_age, k)
 
-                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
-                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
+                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM
@@ -480,8 +479,7 @@ if barstate.islast and show_scan
                 _cem  = array.get(act_ema, r_idx)
                 _cage = array.get(act_age, r_idx)
 
-                _url  = "https://www.tradingview.com/chart/?symbol=" + _raw
-                _tip  = "🔗 Click link to open chart for " + _stk + ":\n" + _url
+                _tip  = "🔍 Symbol: " + _raw + "\n💡 QUICK SWITCH: Type \"" + str.replace_all(_raw, "NSE:", "") + "\" on keyboard & hit Enter!"
 
                 color _sig_bg  = _typ == 1 ? C_BUY_BG  : _typ == 2 ? C_SEL_BG  : _typ == 3 ? C_IB_BG  : C_NO_BG
                 color _sig_txt = _typ == 1 ? C_BUY_TXT : _typ == 2 ? C_SEL_TXT : _typ == 3 ? C_IB_TXT : C_DIM

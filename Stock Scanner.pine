@@ -364,38 +364,93 @@ if barstate.islast and show_scan
     int ns = 0
     int ni = 0
 
-    // 1. BUY Signals (Green)
+    // 1. BUY Signals (HIGH Confidence first, then Normal)
     for i = 0 to array.size(syms) - 1
-        if array.get(buys, i)
+        if array.get(buys, i) and array.get(opps, i)
             nb += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
             array.push(act_type, 1)
-            array.push(act_opp, array.get(opps, i))
+            array.push(act_opp, true)
             array.push(act_ema, array.get(emas, i))
             array.push(act_age, array.get(ages, i))
 
-    // 2. SELL Signals (Red)
     for i = 0 to array.size(syms) - 1
-        if array.get(sells, i)
+        if array.get(buys, i) and not array.get(opps, i)
+            nb += 1
+            array.push(act_sym, array.get(syms, i) + _lbl_suf)
+            array.push(act_type, 1)
+            array.push(act_opp, false)
+            array.push(act_ema, array.get(emas, i))
+            array.push(act_age, array.get(ages, i))
+
+    // 2. SELL Signals (HIGH Confidence first, then Normal)
+    for i = 0 to array.size(syms) - 1
+        if array.get(sells, i) and array.get(opps, i)
             ns += 1
             array.push(act_sym, array.get(syms, i) + _lbl_suf)
             array.push(act_type, 2)
-            array.push(act_opp, array.get(opps, i))
+            array.push(act_opp, true)
             array.push(act_ema, array.get(emas, i))
             array.push(act_age, array.get(ages, i))
 
-    // 3. INSIDE Bars (Orange)
+    for i = 0 to array.size(syms) - 1
+        if array.get(sells, i) and not array.get(opps, i)
+            ns += 1
+            array.push(act_sym, array.get(syms, i) + _lbl_suf)
+            array.push(act_type, 2)
+            array.push(act_opp, false)
+            array.push(act_ema, array.get(emas, i))
+            array.push(act_age, array.get(ages, i))
+
+    // 3. INSIDE BARS: Group 1 -> BULLISH Trend + HIGH Confidence
     if show_inside
         for i = 0 to array.size(syms) - 1
             if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
-                ni += 1
-                array.push(act_sym, array.get(syms, i) + _lbl_suf)
-                array.push(act_type, 3)
-                array.push(act_opp, array.get(opps, i))
-                array.push(act_ema, array.get(emas, i))
-                array.push(act_age, 0)
+                if array.get(emas, i) and array.get(opps, i)
+                    ni += 1
+                    array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                    array.push(act_type, 3)
+                    array.push(act_opp, true)
+                    array.push(act_ema, true)
+                    array.push(act_age, 0)
 
-    // 4. No Pattern (only when show_all = true)
+    // 4. INSIDE BARS: Group 2 -> BEARISH Trend + HIGH Confidence
+    if show_inside
+        for i = 0 to array.size(syms) - 1
+            if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
+                if not array.get(emas, i) and array.get(opps, i)
+                    ni += 1
+                    array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                    array.push(act_type, 3)
+                    array.push(act_opp, true)
+                    array.push(act_ema, false)
+                    array.push(act_age, 0)
+
+    // 5. INSIDE BARS: Group 3 -> BULLISH Trend + Normal Confidence (No Symbol)
+    if show_inside
+        for i = 0 to array.size(syms) - 1
+            if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
+                if array.get(emas, i) and not array.get(opps, i)
+                    ni += 1
+                    array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                    array.push(act_type, 3)
+                    array.push(act_opp, false)
+                    array.push(act_ema, true)
+                    array.push(act_age, 0)
+
+    // 6. INSIDE BARS: Group 4 -> BEARISH Trend + Normal Confidence (No Symbol)
+    if show_inside
+        for i = 0 to array.size(syms) - 1
+            if array.get(pats, i) and not array.get(buys, i) and not array.get(sells, i)
+                if not array.get(emas, i) and not array.get(opps, i)
+                    ni += 1
+                    array.push(act_sym, array.get(syms, i) + _lbl_suf)
+                    array.push(act_type, 3)
+                    array.push(act_opp, false)
+                    array.push(act_ema, false)
+                    array.push(act_age, 0)
+
+    // 7. No Pattern (only when show_all = true)
     if show_all
         for i = 0 to array.size(syms) - 1
             if not array.get(buys, i) and not array.get(sells, i) and not array.get(pats, i)

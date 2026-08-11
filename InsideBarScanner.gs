@@ -64,18 +64,34 @@ function clearResultsSheet() {
  */
 function scanMarket(interval, range, label) {
   const sheet = getTargetSheet();
+  const requests = NIFTY_50.map(ticker => ({
+    url: buildYahooChartUrl(ticker, interval, range),
+    headers: { "User-Agent": "Mozilla/5.0" },
+    muteHttpExceptions: true
+  }));
+
+  let responses;
+  try {
+    responses = UrlFetchApp.fetchAll(requests);
+  } catch (e) {
+    console.warn(`Batch fetch failed; retrying sequentially: ${e && e.message ? e.message : e}`);
+    responses = requests.map(request => UrlFetchApp.fetch(request.url, request));
+  }
+
   const results = [];
 
-  for (let i = 0; i < NIFTY_50.length; i++) {
-    const ticker = NIFTY_50[i];
-    const sig = evaluateTicker(ticker, interval, range);
+  for (let i = 0; i < responses.length; i++) {
+    const sig = evaluateTickerResponse(NIFTY_50[i], responses[i]);
     if (sig) {
       results.push(sig);
     }
-    Utilities.sleep(100); // polite pause between requests
   }
 
   writeResultsToSheet(sheet, label, results);
+}
+
+function buildYahooChartUrl(ticker, interval, range) {
+  return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
 }
 
 /**
@@ -95,18 +111,20 @@ function calculateEMA(closes, period) {
  * Evaluates Inside Bar + Technical Filters for a ticker
  */
 function evaluateTicker(ticker, interval, range) {
+  const response = UrlFetchApp.fetch(buildYahooChartUrl(ticker, interval, range), {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    muteHttpExceptions: true
+  });
+  return evaluateTickerResponse(ticker, response);
+}
+
+function evaluateTickerResponse(ticker, response) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=${interval}&range=${range}`;
-    const options = {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      muteHttpExceptions: true
-    };
-    const response = UrlFetchApp.fetch(url, options);
     if (response.getResponseCode() !== 200) return null;
 
     const json = JSON.parse(response.getContentText());
-    const result = json.chart.result[0];
-    if (!result || !result.timestamp) return null;
+    const result = json.chart && json.chart.result && json.chart.result[0];
+    if (!result || !result.timestamp || !result.indicators || !result.indicators.quote || !result.indicators.quote[0]) return null;
 
     const quote = result.indicators.quote[0];
     const timestamps = result.timestamp;
@@ -223,6 +241,7 @@ function evaluateTicker(ticker, interval, range) {
 
     return null;
   } catch (e) {
+    console.warn(`Skipping ${ticker}: ${e && e.message ? e.message : e}`);
     return null;
   }
 }

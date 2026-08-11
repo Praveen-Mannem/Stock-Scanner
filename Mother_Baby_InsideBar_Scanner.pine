@@ -94,12 +94,17 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     var float _m_high = na
     var float _m_low  = na
     var bool  _in_ib  = false
-    _is_new_day = timeframe.isintraday and ta.change(time("D")) != 0
+    _day_chg = ta.change(time("D"))
+    _is_new_day = timeframe.isintraday and not na(_day_chg) and (_day_chg != 0)
 
     var bool _tr_act = false
     var int  _tr_dir = 0
     var string _st   = "NEUTRAL"
-    var float  _en = na, var float _sl = na, var float _t1 = na, var float _t2 = na, var float _t3 = na
+    var float  _en = na
+    var float  _sl = na
+    var float  _t1 = na
+    var float  _t2 = na
+    var float  _t3 = na
 
     if _is_new_day
         _in_ib := false, _m_high := na, _m_low := na
@@ -126,8 +131,8 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     _buy_bo  = _raw_buy and not _tr_act and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
     _sell_bo = _raw_sell and not _tr_act and (_f_ema ? _ema_bear : true) and (_f_rsi ? _rsi_bear : true) and (_f_vol ? _vol_ok : true)
 
-    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - _m_low[1], _atr * 0.5)
-    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(_m_high[1] - close, _atr * 0.5)
+    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - nz(_m_low, low), _atr * 0.5)
+    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(nz(_m_high, high) - close, _atr * 0.5)
 
     if _buy_bo
         _st := "BULL BO", _en := close, _sl := close - _sl_dist_b
@@ -229,13 +234,32 @@ if show_sr and not na(_pl)
 
 
 // Trade Execution Variables
-var float  _tent = na, var float _tsl = na, var float _ttp1 = na, var float _ttp2 = na, var float _ttp3 = na
-var bool   _tp1hit = false, var bool _tp2hit = false, var bool _tp3hit = false, var bool _slhit  = false
+var float  _tent = na
+var float  _tsl = na
+var float  _ttp1 = na
+var float  _ttp2 = na
+var float  _ttp3 = na
+var bool   _tp1hit = false
+var bool   _tp2hit = false
+var bool   _tp3hit = false
+var bool   _slhit  = false
 
-var line _zl_en = na, var line _zl_sl = na, var line _zl_t1 = na, var line _zl_t2 = na, var line _zl_t3 = na
-var linefill _zf_sl = na, var linefill _zf_t1 = na, var linefill _zf_t2 = na, var linefill _zf_t3 = na
-var label _lb_en = na, var label _lb_sl = na, var label _lb_t1 = na, var label _lb_t2 = na, var label _lb_t3 = na
-var line _p_res = na, var line _p_sup = na
+var line _zl_en = na
+var line _zl_sl = na
+var line _zl_t1 = na
+var line _zl_t2 = na
+var line _zl_t3 = na
+var linefill _zf_sl = na
+var linefill _zf_t1 = na
+var linefill _zf_t2 = na
+var linefill _zf_t3 = na
+var label _lb_en = na
+var label _lb_sl = na
+var label _lb_t1 = na
+var label _lb_t2 = na
+var label _lb_t3 = na
+var line _p_res = na
+var line _p_sup = na
 var label _p_lbl = na
 
 _del_zones() =>
@@ -251,7 +275,8 @@ var float  _m_low  = na
 var bool   _in_ib  = false
 var string _tdir   = "NONE"
 
-_is_chart_new_day = timeframe.isintraday and ta.change(time("D")) != 0
+_chart_day_chg = ta.change(time("D"))
+_is_chart_new_day = timeframe.isintraday and not na(_chart_day_chg) and (_chart_day_chg != 0)
 
 if _is_chart_new_day
     _in_ib := false, _m_high := na, _m_low := na
@@ -318,7 +343,7 @@ plotshape(_sell_sig and show_labels, title="SELL SIGNAL", style=shape.labeldown,
 
 if _buy_sig
     _tdir := "LONG", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - _m_low[1], _atr * 0.5)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - nz(_m_low, low), _atr * 0.5)
     _tsl := close - _sl_d, _ttp1 := close + rr1*_sl_d, _ttp2 := close + rr2*_sl_d, _ttp3 := close + rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
@@ -342,7 +367,7 @@ if _buy_sig
 
 if _sell_sig
     _tdir := "SHORT", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(_m_high[1] - close, _atr * 0.5)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(nz(_m_high, high) - close, _atr * 0.5)
     _tsl := close + _sl_d, _ttp1 := close - rr1*_sl_d, _ttp2 := close - rr2*_sl_d, _ttp3 := close - rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
@@ -435,7 +460,8 @@ if barstate.islast and show_mtf
 // ══════════════════════════════════════════════════════════
 // REAL-TIME ALERTS
 // ══════════════════════════════════════════════════════════
-var bool _prev_tp1 = false, var bool _prev_sl  = false
+var bool _prev_tp1 = false
+var bool _prev_sl  = false
 _tp1_edge = _tp1hit and not _prev_tp1
 _sl_edge  = _slhit  and not _prev_sl
 _prev_tp1 := _tp1hit, _prev_sl  := _slhit

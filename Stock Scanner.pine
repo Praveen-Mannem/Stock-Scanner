@@ -31,9 +31,7 @@ show_curr   = input.bool(true,  "Show Equity Box (Selected Stock - Box 1)",  gro
 curr_pos    = input.string("Top Left", "Equity Box Position",
               options=["Top Left","Top Right","Bottom Left","Bottom Right"], group=grp_v)
 
-show_fut    = input.bool(true,  "Show Futures Box (Selected Stock - Box 2)", group=grp_v, tooltip="Shows real-time Futures/F&O details for selected stock")
-fut_pos     = input.string("Bottom Left", "Futures Box Position",
-              options=["Bottom Left","Top Left","Top Right","Bottom Right"], group=grp_v)
+show_fut    = input.bool(true,  "Show Futures Section (inside combined box)", group=grp_v, tooltip="Shows Futures/F&O rows inside the same combined box")
 
 show_scan   = input.bool(true,  "Show Multi-Stock Scanner (Box 3)",          group=grp_v, tooltip="Shows automatic multi-stock scanner table")
 tbl_pos     = input.string("Top Right", "Multi-Stock Scanner Position",
@@ -41,7 +39,6 @@ tbl_pos     = input.string("Top Right", "Multi-Stock Scanner Position",
 txt_sz_in   = input.string("Small", "Text Size", options=["Small", "Normal", "Tiny"], group=grp_v)
 
 _cpos  = curr_pos == "Top Left" ? position.top_left : curr_pos == "Bottom Right" ? position.bottom_right : curr_pos == "Bottom Left" ? position.bottom_left : position.top_right
-_fpos  = fut_pos == "Bottom Left" ? position.bottom_left : fut_pos == "Top Left" ? position.top_left : fut_pos == "Bottom Right" ? position.bottom_right : position.top_right
 _spos  = tbl_pos == "Top Left" ? position.top_left : tbl_pos == "Bottom Right" ? position.bottom_right : tbl_pos == "Bottom Left" ? position.bottom_left : position.top_right
 _tsize = txt_sz_in == "Tiny" ? size.tiny : txt_sz_in == "Normal" ? size.normal : size.small
 
@@ -225,119 +222,113 @@ C_DIM     = color.new(color.white, 60)
 _tf_disp = tf_label == "Chart TF (Auto Sync)" ? timeframe.period : tf_label
 
 // ════════════════════════════════════════════════════════════════
-// BOX 1: SELECTED STOCK — EQUITY / SPOT MARKET
+// COMBINED BOX: SPOT + FUTURES IN ONE PANEL
 // ════════════════════════════════════════════════════════════════
-var table tb_curr = table.new(_cpos, 2, 7,
+// Row layout (max 16 rows used):
+//  0  ─ Header: ticker + TF
+//  1  ─ SPOT: signal status
+//  2  ─ SPOT: EMA trend
+//  3  ─ SPOT: confidence
+//  4  ─ SPOT: price
+//  5  ─ SPOT: entry/SL  or  Mother boundary
+//  6  ─ SPOT: TP1      or  status msg
+//  7  ─ Divider row ─— shown only when show_fut=true
+//  8  ─ FUTURES header
+//  9  ─ FUTURES: signal
+// 10  ─ FUTURES: trend
+// 11  ─ FUTURES: price
+// 12  ─ FUTURES: entry/SL  or  status
+// 13  ─ FUTURES: TP1
+var table tb_curr = table.new(_cpos, 2, 14,
      border_width=1, border_color=color.new(color.gray, 70),
-     frame_width=2,  frame_color=color.new(#ff6d00, 20)) // Amber frame highlight
+     frame_width=2,  frame_color=color.new(#ff6d00, 20))
 
 if barstate.islast and show_curr
-    // Header
-    _cur_stk_lbl = "🎯 EQUITY / SPOT: " + syminfo.ticker
-    table.cell(tb_curr, 0, 0, _cur_stk_lbl, text_color=C_WHITE, bgcolor=color.new(#ff6d00, 10), text_size=_tsize, text_halign=text.align_left)
-    table.cell(tb_curr, 1, 0, "TF: " + _tf_disp, text_color=C_GOLD, bgcolor=color.new(#ff6d00, 10), text_size=_tsize, text_halign=text.align_right)
+    // ─────────────────────────────── SPOT SECTION ───────────────────────────────
+    table.cell(tb_curr, 0, 0, "🎯 SPOT: " + syminfo.ticker, text_color=C_WHITE,
+         bgcolor=color.new(#ff6d00, 10), text_size=_tsize, text_halign=text.align_left)
+    table.cell(tb_curr, 1, 0, "TF: " + _tf_disp, text_color=C_GOLD,
+         bgcolor=color.new(#ff6d00, 10), text_size=_tsize, text_halign=text.align_right)
 
-    // Status Row
     string c_sig_str = cb ? (ca == 0 ? "▲ BUY (LIVE)" : "▲ BUY (" + str.tostring(ca) + "b)") : cs ? (ca == 0 ? "▼ SELL (LIVE)" : "▼ SELL (" + str.tostring(ca) + "b)") : cp ? "◆ INSIDE BAR" : "— NO PATTERN"
     color  c_sig_bg  = cb ? C_BUY_BG : cs ? C_SEL_BG : cp ? C_IB_BG : C_NO_BG
     color  c_sig_txt = cb ? C_BUY_TXT : cs ? C_SEL_TXT : cp ? C_IB_TXT : C_DIM
-
-    table.cell(tb_curr, 0, 1, "SIGNAL STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+    table.cell(tb_curr, 0, 1, "SIGNAL", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
     table.cell(tb_curr, 1, 1, c_sig_str, text_color=c_sig_txt, bgcolor=c_sig_bg, text_size=_tsize, text_halign=text.align_right)
 
-    // Trend Row
-    string c_trd_str = ce ? "🟢 BULLISH (21 > 50)" : "🔴 BEARISH (21 < 50)"
+    string c_trd_str = ce ? "🟢 BULLISH (21>50)" : "🔴 BEARISH (21<50)"
     color  c_trd_txt = ce ? C_LIME : C_RED_V
-    table.cell(tb_curr, 0, 2, "EMA TREND", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+    table.cell(tb_curr, 0, 2, "TREND", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
     table.cell(tb_curr, 1, 2, c_trd_str, text_color=c_trd_txt, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-    // Confidence / Quality
-    string c_cnf_str = co ? "🔥 HIGH (Opposite Colors)" : "NORMAL SETUP"
+    string c_cnf_str = co ? "🔥 HIGH (Opp. Colors)" : "NORMAL SETUP"
     color  c_cnf_txt = co ? C_GOLD : C_DIM
     table.cell(tb_curr, 0, 3, "CONFIDENCE", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
     table.cell(tb_curr, 1, 3, c_cnf_str, text_color=c_cnf_txt, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-    // Price
     table.cell(tb_curr, 0, 4, "SPOT PRICE", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
     table.cell(tb_curr, 1, 4, str.tostring(c_close, "#.##"), text_color=C_WHITE, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-    // Trade Levels / Pattern Levels
     if cb or cs
         table.cell(tb_curr, 0, 5, "ENTRY / SL", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_curr, 1, 5, "ENT: " + str.tostring(cent, "#.##") + " | SL: " + str.tostring(csl, "#.##"), text_color=C_GOLD, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-        table.cell(tb_curr, 0, 6, "TARGET 1 (1.5R)", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_curr, 1, 6, "TP1: " + str.tostring(ctp1, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+        table.cell(tb_curr, 1, 5, "E: " + str.tostring(cent, "#.##") + " | SL: " + str.tostring(csl, "#.##"), text_color=C_GOLD, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+        table.cell(tb_curr, 0, 6, "TP1 (1.5R)", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+        table.cell(tb_curr, 1, 6, str.tostring(ctp1, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
     else if cp
         table.cell(tb_curr, 0, 5, "MOTHER HIGH", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
         table.cell(tb_curr, 1, 5, str.tostring(cmh, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
         table.cell(tb_curr, 0, 6, "MOTHER LOW", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
         table.cell(tb_curr, 1, 6, str.tostring(cml, "#.##"), text_color=C_RED_V, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
     else
         table.cell(tb_curr, 0, 5, "MOTHER BOUNDARY", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
         table.cell(tb_curr, 1, 5, "— NO ACTIVE PATTERN —", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
         table.cell(tb_curr, 0, 6, "SPOT STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
         table.cell(tb_curr, 1, 6, "MONITORING SPOT MARKET...", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-// ════════════════════════════════════════════════════════════════
-// BOX 2: SELECTED STOCK — FUTURES / F&O MARKET
-// ════════════════════════════════════════════════════════════════
-var table tb_fut = table.new(_fpos, 2, 7,
-     border_width=1, border_color=color.new(color.gray, 70),
-     frame_width=2,  frame_color=color.new(#7c4dff, 20)) // Purple/Violet frame highlight
+    // ──────────────────────── FUTURES SECTION (inside same table) ────────────────────────
+    if show_fut
+        // Divider
+        table.cell(tb_curr, 0, 7, "─── F&O / FUTURES ───", text_color=color.new(#7c4dff, 0),
+             bgcolor=color.new(#1a0533, 30), text_size=_tsize, text_halign=text.align_left)
+        table.cell(tb_curr, 1, 7, syminfo.root + "1!", text_color=color.new(#7c4dff, 0),
+             bgcolor=color.new(#1a0533, 30), text_size=_tsize, text_halign=text.align_right)
 
-if barstate.islast and show_fut
-    _fut_lbl = "⚡ FUTURES / F&O: " + syminfo.root + "1!"
-    table.cell(tb_fut, 0, 0, _fut_lbl, text_color=C_WHITE, bgcolor=color.new(#7c4dff, 10), text_size=_tsize, text_halign=text.align_left)
-    table.cell(tb_fut, 1, 0, "TF: " + _tf_disp, text_color=C_GOLD, bgcolor=color.new(#7c4dff, 10), text_size=_tsize, text_halign=text.align_right)
+        if not na(f_close)
+            string f_sig_str = fb ? (fa == 0 ? "▲ BUY (LIVE)" : "▲ BUY (" + str.tostring(fa) + "b)") : fs ? (fa == 0 ? "▼ SELL (LIVE)" : "▼ SELL (" + str.tostring(fa) + "b)") : fp ? "◆ INSIDE BAR" : "— NO PATTERN"
+            color  f_sig_bg  = fb ? C_BUY_BG : fs ? C_SEL_BG : fp ? C_IB_BG : C_NO_BG
+            color  f_sig_txt = fb ? C_BUY_TXT : fs ? C_SEL_TXT : fp ? C_IB_TXT : C_DIM
+            table.cell(tb_curr, 0, 8, "FUT SIGNAL", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+            table.cell(tb_curr, 1, 8, f_sig_str, text_color=f_sig_txt, bgcolor=f_sig_bg, text_size=_tsize, text_halign=text.align_right)
 
-    if not na(f_close)
-        string f_sig_str = fb ? (fa == 0 ? "▲ BUY (LIVE)" : "▲ BUY (" + str.tostring(fa) + "b)") : fs ? (fa == 0 ? "▼ SELL (LIVE)" : "▼ SELL (" + str.tostring(fa) + "b)") : fp ? "◆ INSIDE BAR" : "— NO PATTERN"
-        color  f_sig_bg  = fb ? C_BUY_BG : fs ? C_SEL_BG : fp ? C_IB_BG : C_NO_BG
-        color  f_sig_txt = fb ? C_BUY_TXT : fs ? C_SEL_TXT : fp ? C_IB_TXT : C_DIM
+            string f_trd_str = fe ? "🟢 BULLISH (21>50)" : "🔴 BEARISH (21<50)"
+            color  f_trd_txt = fe ? C_LIME : C_RED_V
+            table.cell(tb_curr, 0, 9, "FUT TREND", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+            table.cell(tb_curr, 1, 9, f_trd_str, text_color=f_trd_txt, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-        table.cell(tb_fut, 0, 1, "SIGNAL STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_fut, 1, 1, f_sig_str, text_color=f_sig_txt, bgcolor=f_sig_bg, text_size=_tsize, text_halign=text.align_right)
+            table.cell(tb_curr, 0, 10, "FUT PRICE", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+            table.cell(tb_curr, 1, 10, str.tostring(f_close, "#.##"), text_color=C_WHITE, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
 
-        string f_trd_str = fe ? "🟢 BULLISH (21 > 50)" : "🔴 BEARISH (21 < 50)"
-        color  f_trd_txt = fe ? C_LIME : C_RED_V
-        table.cell(tb_fut, 0, 2, "FUTURES TREND", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_fut, 1, 2, f_trd_str, text_color=f_trd_txt, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-        string f_cnf_str = fo ? "🔥 HIGH (Opposite Colors)" : "NORMAL SETUP"
-        color  f_cnf_txt = fo ? C_GOLD : C_DIM
-        table.cell(tb_fut, 0, 3, "CONFIDENCE", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_fut, 1, 3, f_cnf_str, text_color=f_cnf_txt, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-        table.cell(tb_fut, 0, 4, "FUTURES PRICE", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_fut, 1, 4, str.tostring(f_close, "#.##"), text_color=C_WHITE, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-        if fb or fs
-            table.cell(tb_fut, 0, 5, "ENTRY / SL", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 5, "ENT: " + str.tostring(fent, "#.##") + " | SL: " + str.tostring(fsl, "#.##"), text_color=C_GOLD, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-            table.cell(tb_fut, 0, 6, "TARGET 1 (1.5R)", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 6, "TP1: " + str.tostring(ftp1, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-        else if fp
-            table.cell(tb_fut, 0, 5, "MOTHER HIGH", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 5, str.tostring(fmh, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-            table.cell(tb_fut, 0, 6, "MOTHER LOW", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 6, str.tostring(fml, "#.##"), text_color=C_RED_V, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+            if fb or fs
+                table.cell(tb_curr, 0, 11, "FUT ENTRY/SL", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 11, "E: " + str.tostring(fent, "#.##") + " | SL: " + str.tostring(fsl, "#.##"), text_color=C_GOLD, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+                table.cell(tb_curr, 0, 12, "FUT TP1 (1.5R)", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 12, str.tostring(ftp1, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+            else if fp
+                table.cell(tb_curr, 0, 11, "FUT MOTHER H", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 11, str.tostring(fmh, "#.##"), text_color=C_LIME, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+                table.cell(tb_curr, 0, 12, "FUT MOTHER L", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 12, str.tostring(fml, "#.##"), text_color=C_RED_V, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+            else
+                table.cell(tb_curr, 0, 11, "FUT BOUNDARY", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 11, "— NO ACTIVE PATTERN —", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+                table.cell(tb_curr, 0, 12, "FUT STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+                table.cell(tb_curr, 1, 12, "MONITORING F&O CONTRACT...", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
         else
-            table.cell(tb_fut, 0, 5, "MOTHER BOUNDARY", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 5, "— NO ACTIVE PATTERN —", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-
-            table.cell(tb_fut, 0, 6, "FUTURES STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-            table.cell(tb_fut, 1, 6, "MONITORING F&O CONTRACT...", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-    else
-        table.cell(tb_fut, 0, 1, "STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
-        table.cell(tb_fut, 1, 1, "— NON-F&O STOCK —", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
-        for r = 2 to 6
-            table.cell(tb_fut, 0, r, "", bgcolor=C_NO_BG)
-            table.cell(tb_fut, 1, r, "", bgcolor=C_NO_BG)
+            table.cell(tb_curr, 0, 8, "FUT STATUS", text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsize, text_halign=text.align_left)
+            table.cell(tb_curr, 1, 8, "— NON-F&O STOCK —", text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsize, text_halign=text.align_right)
+            for _r = 9 to 12
+                table.cell(tb_curr, 0, _r, "", bgcolor=C_NO_BG)
+                table.cell(tb_curr, 1, _r, "", bgcolor=C_NO_BG)
 
 // ════════════════════════════════════════════════════════════════
 // BOX 3: AUTOMATIC MULTI-STOCK SCANNER TABLE (38 STOCKS)

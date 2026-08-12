@@ -8,7 +8,7 @@
 // ============================================================
 //@version=6
 indicator("Mother & Baby Inside Bar Scanner", shorttitle="M&B SCAN", overlay=true,
-          max_bars_back=300, max_lines_count=200, max_labels_count=200)
+          max_bars_back=300, max_lines_count=200, max_labels_count=500)
 
 // ══════════════════════════════════════════════════════════
 // INPUTS
@@ -94,17 +94,13 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     var float _m_high = na
     var float _m_low  = na
     var bool  _in_ib  = false
-    _day_chg = ta.change(time("D"))
-    _is_new_day = timeframe.isintraday and not na(_day_chg) and (_day_chg != 0)
+    _day_chg     = ta.change(time("D"))
+    _is_new_day  = timeframe.isintraday and _day_chg != 0
 
     var bool _tr_act = false
     var int  _tr_dir = 0
     var string _st   = "NEUTRAL"
-    var float  _en = na
-    var float  _sl = na
-    var float  _t1 = na
-    var float  _t2 = na
-    var float  _t3 = na
+    var float  _en = na, var float _sl = na, var float _t1 = na, var float _t2 = na, var float _t3 = na
 
     if _is_new_day
         _in_ib := false, _m_high := na, _m_low := na
@@ -131,8 +127,8 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     _buy_bo  = _raw_buy and not _tr_act and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
     _sell_bo = _raw_sell and not _tr_act and (_f_ema ? _ema_bear : true) and (_f_rsi ? _rsi_bear : true) and (_f_vol ? _vol_ok : true)
 
-    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - nz(_m_low, low), _atr * 0.5)
-    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(nz(_m_high, high) - close, _atr * 0.5)
+    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - _m_low[1], _atr * 0.5)
+    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(_m_high[1] - close, _atr * 0.5)
 
     if _buy_bo
         _st := "BULL BO", _en := close, _sl := close - _sl_dist_b
@@ -233,34 +229,23 @@ if show_sr and not na(_pl)
          color=color.new(color.lime, 70), textcolor=color.lime, style=label.style_label_right, size=size.tiny)
 
 
-// Trade Execution Variables
-var float  _tent = na
-var float  _tsl = na
-var float  _ttp1 = na
-var float  _ttp2 = na
-var float  _ttp3 = na
-var bool   _tp1hit = false
-var bool   _tp2hit = false
-var bool   _tp3hit = false
-var bool   _slhit  = false
+// ══════════════════════════════════════════════════════════
+// TRADE MANAGEMENT VARIABLES
+// ══════════════════════════════════════════════════════════
+// Trade price levels
+var float  _tent = na, var float _tsl = na, var float _ttp1 = na, var float _ttp2 = na, var float _ttp3 = na
+var bool   _tp1hit = false, var bool _tp2hit = false, var bool _tp3hit = false, var bool _slhit  = false
 
-var line _zl_en = na
-var line _zl_sl = na
-var line _zl_t1 = na
-var line _zl_t2 = na
-var line _zl_t3 = na
-var linefill _zf_sl = na
-var linefill _zf_t1 = na
-var linefill _zf_t2 = na
-var linefill _zf_t3 = na
-var label _lb_en = na
-var label _lb_sl = na
-var label _lb_t1 = na
-var label _lb_t2 = na
-var label _lb_t3 = na
-var line _p_res = na
-var line _p_sup = na
+// Zone drawing objects
+var line _zl_en = na, var line _zl_sl = na, var line _zl_t1 = na, var line _zl_t2 = na, var line _zl_t3 = na
+var linefill _zf_sl = na, var linefill _zf_t1 = na, var linefill _zf_t2 = na, var linefill _zf_t3 = na
+var label _lb_en = na, var label _lb_sl = na, var label _lb_t1 = na, var label _lb_t2 = na, var label _lb_t3 = na
+var line _p_res = na, var line _p_sup = na
 var label _p_lbl = na
+
+// Signal label — persistent so we can update text when outcome is known
+var label  _sig_lbl     = na
+var string _sig_lbl_txt = ""  // tracks current label text so we can append without label.get_text()
 
 _del_zones() =>
     line.delete(_zl_en), line.delete(_zl_sl), line.delete(_zl_t1), line.delete(_zl_t2), line.delete(_zl_t3)
@@ -275,14 +260,22 @@ var float  _m_low  = na
 var bool   _in_ib  = false
 var string _tdir   = "NONE"
 
-_chart_day_chg = ta.change(time("D"))
-_is_chart_new_day = timeframe.isintraday and not na(_chart_day_chg) and (_chart_day_chg != 0)
+_chart_day_chg    = ta.change(time("D"))
+_is_chart_new_day = timeframe.isintraday and _chart_day_chg != 0
 
 if _is_chart_new_day
     _in_ib := false, _m_high := na, _m_low := na
     _del_prep()
     if _tdir != "NONE"
-        _del_zones(), _tdir := "NONE"
+        // Auto-close any active signal at End-of-Day — mark label as EOD CLOSED
+        if not na(_sig_lbl)
+            _eod_txt = _sig_lbl_txt + "\n⏹ EOD CLOSED"
+            label.set_text(_sig_lbl, _eod_txt)
+            label.set_color(_sig_lbl, color.new(color.gray, 30))
+            _sig_lbl_txt := _eod_txt
+        _del_zones()
+        _tdir := "NONE"
+        _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
 
 if _is_mb_pattern and not _in_ib and (_tdir == "NONE") and not _is_chart_new_day
     _m_high := high[1], _m_low := low[1], _in_ib := true
@@ -336,17 +329,29 @@ if _sell_sig
 else
     _b_since_sell += 1
 
-// Active Trades Plotting
-plotshape(_buy_sig and show_labels, title="BUY SIGNAL",  style=shape.labelup,   location=location.belowbar, color=color.lime, text="BUY",  textcolor=color.black, size=size.small)
-plotshape(_sell_sig and show_labels, title="SELL SIGNAL", style=shape.labeldown, location=location.abovebar, color=color.red,  text="SELL", textcolor=color.white, size=size.small)
+// Active Trades Plotting — using label.new so tooltip shows Entry/SL/TP when clicked
 
 
 if _buy_sig
     _tdir := "LONG", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - nz(_m_low, low), _atr * 0.5)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - _m_low[1], _atr * 0.5)
     _tsl := close - _sl_d, _ttp1 := close + rr1*_sl_d, _ttp2 := close + rr2*_sl_d, _ttp3 := close + rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
+    // BUY signal label — stored in _sig_lbl so outcome can be updated later
+    if show_labels
+        _buy_tip = "\ud83d\udfe2 BUY SIGNAL | ACTIVE"
+        _buy_tip := _buy_tip + "\nEntry : " + _fmt(close)
+        _buy_tip := _buy_tip + "\nSL    : " + _fmt(_tsl)
+        _buy_tip := _buy_tip + "\nTP1   : " + _fmt(_ttp1)
+        _buy_tip := _buy_tip + "\nTP2   : " + _fmt(_ttp2)
+        _buy_tip := _buy_tip + "\nTP3   : " + _fmt(_ttp3)
+        _buy_lbl_txt = "BUY ▲ ACTIVE"
+        _sig_lbl_txt := _buy_lbl_txt
+        _sig_lbl := label.new(bar_index, low, _buy_lbl_txt,
+             yloc=yloc.belowbar, style=label.style_label_up,
+             color=color.lime, textcolor=color.black, size=size.small,
+             tooltip=_buy_tip)
     if show_zones
         _del_zones()
         _x2 = bar_index + zone_ext, _lx = _x2 + 1
@@ -367,10 +372,24 @@ if _buy_sig
 
 if _sell_sig
     _tdir := "SHORT", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(nz(_m_high, high) - close, _atr * 0.5)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(_m_high[1] - close, _atr * 0.5)
     _tsl := close + _sl_d, _ttp1 := close - rr1*_sl_d, _ttp2 := close - rr2*_sl_d, _ttp3 := close - rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
+    // SELL signal label — stored in _sig_lbl so outcome can be updated later
+    if show_labels
+        _sell_tip = "\ud83d\udd34 SELL SIGNAL | ACTIVE"
+        _sell_tip := _sell_tip + "\nEntry : " + _fmt(close)
+        _sell_tip := _sell_tip + "\nSL    : " + _fmt(_tsl)
+        _sell_tip := _sell_tip + "\nTP1   : " + _fmt(_ttp1)
+        _sell_tip := _sell_tip + "\nTP2   : " + _fmt(_ttp2)
+        _sell_tip := _sell_tip + "\nTP3   : " + _fmt(_ttp3)
+        _sell_lbl_txt = "SELL ▼ ACTIVE"
+        _sig_lbl_txt := _sell_lbl_txt
+        _sig_lbl := label.new(bar_index, high, _sell_lbl_txt,
+             yloc=yloc.abovebar, style=label.style_label_down,
+             color=color.red, textcolor=color.white, size=size.small,
+             tooltip=_sell_tip)
     if show_zones
         _del_zones()
         _x2 = bar_index + zone_ext, _lx = _x2 + 1
@@ -389,34 +408,58 @@ if _sell_sig
         _lb_t2 := label.new(_lx, _ttp2, "TP2 "   + _fmt(_ttp2), style=label.style_label_left, color=color.new(color.lime, 20), textcolor=color.white, size=size.small)
         _lb_t3 := label.new(_lx, _ttp3, "TP3 "   + _fmt(_ttp3), style=label.style_label_left, color=color.new(color.teal, 20), textcolor=color.white, size=size.small)
 
+
+// ══════════════════════════════════════════════════════════
+// ACTIVE TRADE ZONE MANAGEMENT
+// ══════════════════════════════════════════════════════════
 if _tdir != "NONE"
     if show_zones and not na(_zl_en) and barstate.islast
         _nx = bar_index + zone_ext
         line.set_x2(_zl_en, _nx), line.set_x2(_zl_sl, _nx), line.set_x2(_zl_t1, _nx), line.set_x2(_zl_t2, _nx), line.set_x2(_zl_t3, _nx)
         if not na(_lb_en)
             label.set_x(_lb_en, _nx + 1), label.set_x(_lb_sl, _nx + 1), label.set_x(_lb_t1, _nx + 1), label.set_x(_lb_t2, _nx + 1), label.set_x(_lb_t3, _nx + 1)
-    
+
     if _tdir == "LONG"
+        // Track TP hits
         if not _tp1hit and high >= _ttp1
             _tp1hit := true
         if not _tp2hit and high >= _ttp2
             _tp2hit := true
         if not _tp3hit and high >= _ttp3
             _tp3hit := true
+        // Track SL hit — update signal label immediately
         if not _slhit and low <= _tsl
             _slhit := true
+            if not na(_sig_lbl)
+                label.set_text(_sig_lbl, "BUY ❌ SL HIT")
+                label.set_color(_sig_lbl, color.new(color.red, 20))
+        // TP1 reached — update signal label
+        if _tp1hit and not _slhit and not na(_sig_lbl)
+            label.set_text(_sig_lbl, "BUY ✅ TP HIT")
+            label.set_color(_sig_lbl, color.new(color.teal, 10))
+        // Close trade on TP1/SL
         if _ema_bear or low <= _tsl or high >= _ttp1
             _del_zones(), _tdir := "NONE"
 
     if _tdir == "SHORT"
+        // Track TP hits
         if not _tp1hit and low <= _ttp1
             _tp1hit := true
         if not _tp2hit and low <= _ttp2
             _tp2hit := true
         if not _tp3hit and low <= _ttp3
             _tp3hit := true
+        // Track SL hit — update signal label immediately
         if not _slhit and high >= _tsl
             _slhit := true
+            if not na(_sig_lbl)
+                label.set_text(_sig_lbl, "SELL ❌ SL HIT")
+                label.set_color(_sig_lbl, color.new(color.red, 20))
+        // TP1 reached — update signal label
+        if _tp1hit and not _slhit and not na(_sig_lbl)
+            label.set_text(_sig_lbl, "SELL ✅ TP HIT")
+            label.set_color(_sig_lbl, color.new(color.teal, 10))
+        // Close trade on TP1/SL
         if _ema_bull or high >= _tsl or low <= _ttp1
             _del_zones(), _tdir := "NONE"
 
@@ -460,8 +503,7 @@ if barstate.islast and show_mtf
 // ══════════════════════════════════════════════════════════
 // REAL-TIME ALERTS
 // ══════════════════════════════════════════════════════════
-var bool _prev_tp1 = false
-var bool _prev_sl  = false
+var bool _prev_tp1 = false, var bool _prev_sl  = false
 _tp1_edge = _tp1hit and not _prev_tp1
 _sl_edge  = _slhit  and not _prev_sl
 _prev_tp1 := _tp1hit, _prev_sl  := _slhit

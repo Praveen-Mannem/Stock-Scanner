@@ -20,7 +20,7 @@ mkt_type    = input.string("Spot Data (Best for F&O & Equity)", "Symbol Display 
               group=grp_s, tooltip="Spot data is 100% reliable for F&O & Equity. Option changes table label to FUT for Futures traders.")
 _lbl_suf    = mkt_type == "Futures Labels (FUT)" ? " FUT" : ""
 
-filter_ema   = input.bool(true,  "EMA Trend Filter",     group=grp_s, tooltip="BUY only when EMA21>EMA50, SELL only when EMA21<EMA50")
+filter_ema   = input.bool(true,  "EMA Trend Filter",     group=grp_s, tooltip="BUY only when price>EMA50, SELL only when price<EMA50. Looser filter catches breakouts in recovery phase.")
 filter_doji  = input.bool(true,  "Exclude Doji Mothers", group=grp_s, tooltip="Skip patterns where Mother candle body < 10% of range")
 filter_wicks = input.bool(true,  "Exclude Rejection Wicks", group=grp_s, tooltip="Breakout candle must close in top 50% for BUY / bottom 50% for SELL to filter rejection wicks")
 show_inside  = input.bool(true,  "Show Inside Bars",     group=grp_s, tooltip="Show stocks currently forming inside bar")
@@ -49,8 +49,11 @@ f_mb(_fe, _fd, _fw) =>
     _atr = ta.atr(14)
     _e1  = ta.ema(close, 21)
     _e2  = ta.ema(close, 50)
-    _eb  = _e1 > _e2
-    _es  = _e1 < _e2
+
+    // ── FIXED TREND FILTER: Use price vs EMA50 (not EMA21 vs EMA50)
+    // This catches breakouts in recovery phase where EMA21 still lags below EMA50
+    _eb  = close > _e2   // Bullish: price above EMA50
+    _es  = close < _e2   // Bearish: price below EMA50
 
     _mr  = high[1] - low[1]
     _mb  = math.abs(close[1] - open[1])
@@ -62,7 +65,8 @@ f_mb(_fe, _fd, _fw) =>
 
     var float _mh = na
     var float _ml = na
-    var bool  _ii = false
+    var bool  _ii = false          // inside bar is forming on PREVIOUS bar
+    var bool  _ii_prev = false     // snapshot of _ii before current-bar mutation
 
     var int   _tr_dir = 0   // 1 = Active BUY, -1 = Active SELL, 0 = Flat
     var float _tr_sl  = na
@@ -70,34 +74,39 @@ f_mb(_fe, _fd, _fw) =>
     var float _tr_ent = na
     var int   _tr_age = 0   // Bars active
 
-    // Session / New Day Reset: Invalidate yesterday's inside bars and active trades on gap open / new day
-    _day_chg = ta.change(time("D"))
+    // Session / New Day Reset: Invalidate yesterday's inside bars on gap open
+    _day_chg    = ta.change(time("D"))
     _is_new_day = timeframe.isintraday and not na(_day_chg) and (_day_chg != 0)
 
     if _is_new_day
-        _ii := false
-        _mh := na
-        _ml := na
-        _tr_dir := 0
-        _tr_age := 0
+        _ii      := false
+        _ii_prev := false
+        _mh      := na
+        _ml      := na
+        _tr_dir  := 0
+        _tr_age  := 0
+
+    // ── FIXED: Snapshot _ii BEFORE mutating it so breakout check uses last bar's value
+    _ii_prev := _ii
 
     if _im and not _ii and not _is_new_day
         _mh := high[1]
         _ml := low[1]
         _ii := true
     else if _ii and (high <= _mh) and (low >= _ml) and not _is_new_day
-        _ii := true
-    else
-        if not _im and not na(_mh) and (close > _mh or close < _ml or high > _mh or low < _ml or _is_new_day)
-            _ii := false
+        _ii := true   // still inside — keep active
+    else if not _is_new_day
+        // Breakout or invalidation — clear _ii AFTER we capture _ii_prev above
+        _ii := false
 
-    // Breakout Rules with Wick Rejection Filter
+    // ── Breakout Rules: use _ii_prev (value from END of previous bar) ──
     float _bo_rng = high - low
-    bool _valid_buy_wick = not _fw or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
+    bool _valid_buy_wick = not _fw or (_bo_rng > 0 and ((close - low)  / _bo_rng) >= 0.5)
     bool _valid_sel_wick = not _fw or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
 
-    _rb = _ii[1] and not _is_new_day and (close > _mh) and (close > open) and _valid_buy_wick
-    _rs = _ii[1] and not _is_new_day and (close < _ml) and (close < open) and _valid_sel_wick
+    // ── FIXED: Use _ii_prev instead of _ii[1] — guarantees we check confirmed inside bar
+    _rb = _ii_prev and not _is_new_day and (close > _mh) and (close > open) and _valid_buy_wick
+    _rs = _ii_prev and not _is_new_day and (close < _ml) and (close < open) and _valid_sel_wick
 
     // Signals generated ONLY when NO trade is currently active (_tr_dir == 0)
     _b  = _rb and (_tr_dir == 0) and (_fe ? _eb : true)
@@ -120,17 +129,18 @@ f_mb(_fe, _fd, _fw) =>
     else if _tr_dir != 0
         _tr_age += 1
 
-    // Check TP1 / SL / Trend Flip / Age Exit Conditions (Synchronized with chart indicator)
+    // ── FIXED: Removed 'not _eb / not _es' from exit — EMA flip should NOT kill a confirmed trade
+    // Only exit on: TP hit, SL hit, or trade too old (> 30 bars)
     if _tr_dir == 1 and not _b
-        if high >= _tr_tp1 or low <= _tr_sl or not _eb or _tr_age > 30
+        if high >= _tr_tp1 or low <= _tr_sl or _tr_age > 30
             _tr_dir := 0
     else if _tr_dir == -1 and not _s
-        if low <= _tr_tp1 or high >= _tr_sl or not _es or _tr_age > 30
+        if low <= _tr_tp1 or high >= _tr_sl or _tr_age > 30
             _tr_dir := 0
 
     bool _is_buy  = _tr_dir == 1
     bool _is_sell = _tr_dir == -1
-    bool _is_ins  = (_tr_dir == 0) and _ii
+    bool _is_ins  = (_tr_dir == 0) and _ii_prev   // show inside bar using prev snapshot
 
     [_is_buy, _is_sell, _is_ins, _opp, _eb, _tr_age, _tr_ent, _tr_sl, _tr_tp1, _mh, _ml, close]
 

@@ -19,7 +19,7 @@ filter_doji= input.bool(true,  "Filter Out Doji Mother Candles",         group=g
 min_m_body = input.float(10.0, "Min Mother Body % of Range",             group=grp_mb, minval=5.0, maxval=50.0)
 
 grp_acc    = "══ ACCURACY FILTERS ══"
-filter_ema = input.bool(true,  "EMA Trend Filter", group=grp_acc)
+filter_ema = input.bool(true,  "EMA Trend Filter (price > EMA50)", group=grp_acc, tooltip="BUY when price > EMA50, SELL when price < EMA50. Catches breakouts in recovery phase before EMA21 crosses.")
 filter_rsi = input.bool(false, "RSI Zone Filter",  group=grp_acc)
 filter_vol = input.bool(false, "Volume Expansion", group=grp_acc)
 vol_mult   = input.float(1.2,  "Volume Multiplier",group=grp_acc, step=0.1)
@@ -74,8 +74,9 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     _rsi = ta.rsi(close, 14)
     _vm  = ta.sma(volume, 20)
 
-    _ema_bull = _e1 > _e2
-    _ema_bear = _e1 < _e2
+    // ── FIXED: Use price vs EMA50 as trend filter (catches recovery breakouts)
+    _ema_bull = close > _e2
+    _ema_bear = close < _e2
     _rsi_bull = _rsi > 50
     _rsi_bear = _rsi < 50
     _vol_ok   = volume > _vm * _vmult
@@ -91,9 +92,9 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
     _color_valid     = not _req_opp or _is_opp_color
     _is_mb_pattern   = _is_mother_valid and _is_baby_inside and _color_valid
 
-    var float _m_high = na
-    var float _m_low  = na
-    var bool  _in_ib  = false
+    var float _m_high   = na
+    var float _m_low    = na
+    var bool  _in_ib    = false
     _day_chg     = ta.change(time("D"))
     _is_new_day  = timeframe.isintraday and _day_chg != 0
 
@@ -113,22 +114,22 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
         _m_high := high[1], _m_low := low[1], _in_ib := true
     else if _in_ib and high <= _m_high and low >= _m_low and not _is_new_day
         _in_ib := true
-    else
-        if not _is_mb_pattern and not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_new_day)
-            _in_ib := false
+    else if not _is_new_day
+        _in_ib := false
 
     _bo_rng = high - low
     _valid_buy_wick = not _f_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
     _valid_sel_wick = not _f_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
 
+    // _in_ib[1] = confirmed end-of-previous-bar value — stable across all realtime ticks
     _raw_buy  = _in_ib[1] and not _is_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
-    _raw_sell = _in_ib[1] and not _is_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
+    _raw_sell = _in_ib[1] and not _is_new_day and (close < _m_low)  and (close < open) and _valid_sel_wick
 
-    _buy_bo  = _raw_buy and not _tr_act and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
+    _buy_bo  = _raw_buy  and not _tr_act and (_f_ema ? _ema_bull : true) and (_f_rsi ? _rsi_bull : true) and (_f_vol ? _vol_ok : true)
     _sell_bo = _raw_sell and not _tr_act and (_f_ema ? _ema_bear : true) and (_f_rsi ? _rsi_bear : true) and (_f_vol ? _vol_ok : true)
 
-    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - _m_low[1], _atr * 0.5)
-    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(_m_high[1] - close, _atr * 0.5)
+    _sl_dist_b = _sl_src == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(close - _m_low, _atr * 0.5)
+    _sl_dist_s = _sl_src == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : _sl_src == "ATR Multiplier" ? _slm * _atr : math.max(_m_high - close, _atr * 0.5)
 
     if _buy_bo
         _st := "BULL BO", _en := close, _sl := close - _sl_dist_b
@@ -139,21 +140,18 @@ f_mb_engine(_req_opp, _f_doji, _m_body_pct, _sl_src, _slm, _rr1, _rr2, _rr3, _f_
         _t1 := close - _rr1*_sl_dist_s, _t2 := close - _rr2*_sl_dist_s, _t3 := close - _rr3*_sl_dist_s
         _tr_act := true, _tr_dir := -1, _in_ib := false
 
+    // ── FIXED: Removed EMA-flip exits — only close on TP/SL
     if _tr_act and not _buy_bo and not _sell_bo
         if _tr_dir == 1
             if high >= _t1
                 _st := "CLOSED (TP)", _tr_act := false, _tr_dir := 0
             else if low <= _sl
                 _st := "CLOSED (SL)", _tr_act := false, _tr_dir := 0
-            else if not _ema_bull
-                _st := "CLOSED (FLIP)", _tr_act := false, _tr_dir := 0
         else if _tr_dir == -1
             if low <= _t1
                 _st := "CLOSED (TP)", _tr_act := false, _tr_dir := 0
             else if high >= _sl
                 _st := "CLOSED (SL)", _tr_act := false, _tr_dir := 0
-            else if not _ema_bear
-                _st := "CLOSED (FLIP)", _tr_act := false, _tr_dir := 0
 
     if _is_mb_pattern and not _buy_bo and not _sell_bo and not _tr_act
         _st := "INSIDE"
@@ -178,8 +176,9 @@ _e2  = ta.ema(close, 50)
 _rsi = ta.rsi(close, 14)
 _vm  = ta.sma(volume, 20)
 
-_ema_bull = _e1 > _e2
-_ema_bear = _e1 < _e2
+// ── FIXED: Use price vs EMA50 for chart-level filter (consistent with engine)
+_ema_bull = close > _e2
+_ema_bear = close < _e2
 _rsi_bull = _rsi > 50
 _rsi_bear = _rsi < 50
 _vol_ok   = volume > _vm * vol_mult
@@ -255,9 +254,9 @@ _del_zones() =>
 _del_prep() =>
     line.delete(_p_res), line.delete(_p_sup), label.delete(_p_lbl)
 
-var float  _m_high = na
-var float  _m_low  = na
-var bool   _in_ib  = false
+var float  _m_high    = na
+var float  _m_low     = na
+var bool   _in_ib     = false
 var string _tdir   = "NONE"
 
 _chart_day_chg    = ta.change(time("D"))
@@ -283,19 +282,19 @@ if _is_mb_pattern and not _in_ib and (_tdir == "NONE") and not _is_chart_new_day
         _del_prep()
         _p_res := line.new(bar_index-1, _m_high, bar_index+5, _m_high, color=color.aqua, style=line.style_solid, width=2)
         _p_sup := line.new(bar_index-1, _m_low, bar_index+5, _m_low, color=color.orange, style=line.style_solid, width=2)
-        
+
         _b_en = _m_high
         _b_sl = sl_source == "Breakout Candle Low/High" ? _m_low : sl_source == "ATR Multiplier" ? _b_en - (sl_mult * _atr) : _m_low
         _b_t1 = _b_en + rr1 * (_b_en - _b_sl)
-        
+
         _s_en = _m_low
         _s_sl = sl_source == "Breakout Candle Low/High" ? _m_high : sl_source == "ATR Multiplier" ? _s_en + (sl_mult * _atr) : _m_high
         _s_t1 = _s_en - rr1 * (_s_sl - _s_en)
-        
-        str_msg = "PREP ZONES:\n" + 
+
+        str_msg = "PREP ZONES:\n" +
                   "LONG Entry: " + _fmt(_b_en) + " | SL: " + _fmt(_b_sl) + " | TP: " + _fmt(_b_t1) + "\n" +
                   "SHORT Entry: " + _fmt(_s_en) + " | SL: " + _fmt(_s_sl) + " | TP: " + _fmt(_s_t1)
-                  
+
         _p_lbl := label.new(bar_index, _m_high, str_msg, yloc=yloc.abovebar, color=color.blue, textcolor=color.white, style=label.style_label_down, size=size.small)
 
 else if _in_ib and high <= _m_high and low >= _m_low and not _is_chart_new_day
@@ -304,19 +303,19 @@ else if _in_ib and high <= _m_high and low >= _m_low and not _is_chart_new_day
         line.set_x2(_p_res, bar_index+2)
         line.set_x2(_p_sup, bar_index+2)
         label.set_x(_p_lbl, bar_index)
-else
-    if not na(_m_high) and (close > _m_high or close < _m_low or high > _m_high or low < _m_low or _is_chart_new_day)
-        _in_ib := false
-        _del_prep()
+else if not _is_chart_new_day
+    _in_ib := false
+    _del_prep()
 
 _bo_rng = high - low
 _valid_buy_wick = not filter_wicks or (_bo_rng > 0 and ((close - low) / _bo_rng) >= 0.5)
 _valid_sel_wick = not filter_wicks or (_bo_rng > 0 and ((high - close) / _bo_rng) >= 0.5)
 
+// _in_ib[1] = confirmed end-of-previous-bar value — stable across all realtime ticks
 _raw_buy  = _in_ib[1] and not _is_chart_new_day and (close > _m_high) and (close > open) and _valid_buy_wick
-_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open)  and _valid_sel_wick
+_raw_sell = _in_ib[1] and not _is_chart_new_day and (close < _m_low)  and (close < open) and _valid_sel_wick
 
-_buy_sig  = _raw_buy and (_tdir == "NONE") and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
+_buy_sig  = _raw_buy  and (_tdir == "NONE") and (filter_ema ? _ema_bull : true) and (filter_rsi ? _rsi_bull : true) and (filter_vol ? _vol_ok : true) and _htf_bull
 _sell_sig = _raw_sell and (_tdir == "NONE") and (filter_ema ? _ema_bear : true) and (filter_rsi ? _rsi_bear : true) and (filter_vol ? _vol_ok : true) and _htf_bear
 
 var int _b_since_buy = 999, var int _b_since_sell = 999
@@ -437,8 +436,8 @@ if _tdir != "NONE"
         if _tp1hit and not _slhit and not na(_sig_lbl)
             label.set_text(_sig_lbl, "BUY ✅ TP HIT")
             label.set_color(_sig_lbl, color.new(color.teal, 10))
-        // Close trade on TP1/SL
-        if _ema_bear or low <= _tsl or high >= _ttp1
+        // ── FIXED: Close only on SL or TP1, NOT on EMA flip
+        if low <= _tsl or high >= _ttp1
             _del_zones(), _tdir := "NONE"
 
     if _tdir == "SHORT"
@@ -459,8 +458,8 @@ if _tdir != "NONE"
         if _tp1hit and not _slhit and not na(_sig_lbl)
             label.set_text(_sig_lbl, "SELL ✅ TP HIT")
             label.set_color(_sig_lbl, color.new(color.teal, 10))
-        // Close trade on TP1/SL
-        if _ema_bull or high >= _tsl or low <= _ttp1
+        // ── FIXED: Close only on SL or TP1, NOT on EMA flip
+        if high >= _tsl or low <= _ttp1
             _del_zones(), _tdir := "NONE"
 
 // ══════════════════════════════════════════════════════════
@@ -509,9 +508,9 @@ _sl_edge  = _slhit  and not _prev_sl
 _prev_tp1 := _tp1hit, _prev_sl  := _slhit
 
 if al_buy and _buy_sig
-    alert("M&B BUY | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
+    alert("M&B BUY | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
 if al_sell and _sell_sig
-    alert("M&B SELL | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar_close)
+    alert("M&B SELL | " + syminfo.ticker + " (" + timeframe.period + ") Entry:" + _fmt(close) + " SL:" + _fmt(_tsl), alert.freq_once_per_bar)
 if al_tp1 and _tp1_edge
     alert("M&B TP1 HIT | " + syminfo.ticker, alert.freq_once_per_bar)
 if al_sl and _sl_edge

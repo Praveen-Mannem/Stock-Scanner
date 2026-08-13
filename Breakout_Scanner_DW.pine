@@ -1,0 +1,257 @@
+// ════════════════════════════════════════════════════════════════
+// BREAKOUT SCANNER — DAILY & WEEKLY (19 Nifty50 Stocks)
+// Conditions (from Chartink-style screener):
+//  C1: Max(5, close) > Max(120 Daily bars, close)[6 days ago] × 1.04
+//  C2: close > previous period close  (weekly: prev week, daily: prev day)
+//  C3: Volume > SMA(Volume, 20)
+//  C4: RSI(14) > 50
+// ════════════════════════════════════════════════════════════════
+//@version=6
+indicator("Breakout Scanner | Daily & Weekly", shorttitle="BO SCAN D&W", overlay=false)
+
+// ══════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════
+grp_s = "══ SCANNER SETTINGS ══"
+mult_in   = input.float(1.04,  "Breakout Multiplier (×)", minval=1.0, maxval=1.3, step=0.01, group=grp_s,
+            tooltip="C1: 5-bar high must exceed the 120D (or 24W) lookback high × this factor. 1.04 = 4% above high.")
+show_all  = input.bool(false,  "Show All Stocks (even if no signal)", group=grp_s)
+show_cond = input.bool(true,   "Show Individual Condition Columns",   group=grp_s)
+
+grp_d = "══ DISPLAY ══"
+tbl_pos = input.string("Top Right", "Table Position",
+          options=["Top Right","Top Left","Bottom Right","Bottom Left"], group=grp_d)
+txt_sz  = input.string("Small", "Text Size", options=["Tiny","Small","Normal"], group=grp_d)
+
+_tpos = tbl_pos=="Top Left" ? position.top_left : tbl_pos=="Bottom Right" ? position.bottom_right : tbl_pos=="Bottom Left" ? position.bottom_left : position.top_right
+_tsz  = txt_sz=="Tiny" ? size.tiny : txt_sz=="Normal" ? size.normal : size.small
+
+// ══════════════════════════════════════════════════════════════
+// COLORS
+// ══════════════════════════════════════════════════════════════
+C_GRN_BG  = color.new(#1b5e20, 10)
+C_GRN_TXT = color.new(#00e676, 0)
+C_RED_BG  = color.new(#b71c1c, 10)
+C_RED_TXT = color.new(#ff5252, 0)
+C_HDR_BG  = color.new(#1a237e, 0)
+C_TTL_BG  = color.new(#0d1441, 0)
+C_NO_BG   = color.new(#0a0a1a, 10)
+C_WHITE   = color.white
+C_GOLD    = color.new(#ffd700, 0)
+C_DIM     = color.new(color.white, 60)
+C_TICK    = color.new(#00e676, 0)
+C_CROSS   = color.new(#ff5252, 0)
+
+// ══════════════════════════════════════════════════════════════
+// CORE SCAN FUNCTION
+// lb_slow : lookback for slow-high (120 on D, 24 on W)
+// slow_off: offset for slow-high (6 on D, 1 on W)
+// ══════════════════════════════════════════════════════════════
+f_scan(lb_slow, slow_off, mult_) =>
+    _c1 = ta.highest(close, 5)    > ta.highest(close, lb_slow)[slow_off] * mult_
+    _c2 = close                    > close[1]
+    _c3 = volume                   > ta.sma(volume, 20)
+    _c4 = ta.rsi(close, 14)        > 50.0
+    [_c1 and _c2 and _c3 and _c4, _c1, _c2, _c3, _c4]
+
+// ══════════════════════════════════════════════════════════════
+// SECURITY CALLS — DAILY  (Calls 1–19)
+// C1 uses: Max(5D,close) > Max(120D,close)[6] × mult
+// ══════════════════════════════════════════════════════════════
+[d01,dc1_01,dc2_01,dc3_01,dc4_01]=request.security("NSE:RELIANCE",  "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d02,dc1_02,dc2_02,dc3_02,dc4_02]=request.security("NSE:TCS",       "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d03,dc1_03,dc2_03,dc3_03,dc4_03]=request.security("NSE:HDFCBANK",  "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d04,dc1_04,dc2_04,dc3_04,dc4_04]=request.security("NSE:INFY",      "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d05,dc1_05,dc2_05,dc3_05,dc4_05]=request.security("NSE:ICICIBANK", "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d06,dc1_06,dc2_06,dc3_06,dc4_06]=request.security("NSE:HINDUNILVR","D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d07,dc1_07,dc2_07,dc3_07,dc4_07]=request.security("NSE:SBIN",      "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d08,dc1_08,dc2_08,dc3_08,dc4_08]=request.security("NSE:BHARTIARTL","D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d09,dc1_09,dc2_09,dc3_09,dc4_09]=request.security("NSE:LT",        "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d10,dc1_10,dc2_10,dc3_10,dc4_10]=request.security("NSE:BAJFINANCE","D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d11,dc1_11,dc2_11,dc3_11,dc4_11]=request.security("NSE:KOTAKBANK", "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d12,dc1_12,dc2_12,dc3_12,dc4_12]=request.security("NSE:HCLTECH",   "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d13,dc1_13,dc2_13,dc3_13,dc4_13]=request.security("NSE:AXISBANK",  "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d14,dc1_14,dc2_14,dc3_14,dc4_14]=request.security("NSE:MARUTI",    "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d15,dc1_15,dc2_15,dc3_15,dc4_15]=request.security("NSE:SUNPHARMA", "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d16,dc1_16,dc2_16,dc3_16,dc4_16]=request.security("NSE:TITAN",     "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d17,dc1_17,dc2_17,dc3_17,dc4_17]=request.security("NSE:TATAMOTORS","D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d18,dc1_18,dc2_18,dc3_18,dc4_18]=request.security("NSE:NTPC",      "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+[d19,dc1_19,dc2_19,dc3_19,dc4_19]=request.security("NSE:WIPRO",     "D",f_scan(120,6,mult_in),lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════
+// SECURITY CALLS — WEEKLY  (Calls 20–38)
+// On W chart: 24 weeks ≈ 120 trading days; [1] = prev week ≈ 6 days ago
+// ══════════════════════════════════════════════════════════════
+[w01,wc1_01,wc2_01,wc3_01,wc4_01]=request.security("NSE:RELIANCE",  "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w02,wc1_02,wc2_02,wc3_02,wc4_02]=request.security("NSE:TCS",       "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w03,wc1_03,wc2_03,wc3_03,wc4_03]=request.security("NSE:HDFCBANK",  "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w04,wc1_04,wc2_04,wc3_04,wc4_04]=request.security("NSE:INFY",      "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w05,wc1_05,wc2_05,wc3_05,wc4_05]=request.security("NSE:ICICIBANK", "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w06,wc1_06,wc2_06,wc3_06,wc4_06]=request.security("NSE:HINDUNILVR","W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w07,wc1_07,wc2_07,wc3_07,wc4_07]=request.security("NSE:SBIN",      "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w08,wc1_08,wc2_08,wc3_08,wc4_08]=request.security("NSE:BHARTIARTL","W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w09,wc1_09,wc2_09,wc3_09,wc4_09]=request.security("NSE:LT",        "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w10,wc1_10,wc2_10,wc3_10,wc4_10]=request.security("NSE:BAJFINANCE","W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w11,wc1_11,wc2_11,wc3_11,wc4_11]=request.security("NSE:KOTAKBANK", "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w12,wc1_12,wc2_12,wc3_12,wc4_12]=request.security("NSE:HCLTECH",   "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w13,wc1_13,wc2_13,wc3_13,wc4_13]=request.security("NSE:AXISBANK",  "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w14,wc1_14,wc2_14,wc3_14,wc4_14]=request.security("NSE:MARUTI",    "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w15,wc1_15,wc2_15,wc3_15,wc4_15]=request.security("NSE:SUNPHARMA", "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w16,wc1_16,wc2_16,wc3_16,wc4_16]=request.security("NSE:TITAN",     "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w17,wc1_17,wc2_17,wc3_17,wc4_17]=request.security("NSE:TATAMOTORS","W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w18,wc1_18,wc2_18,wc3_18,wc4_18]=request.security("NSE:NTPC",      "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+[w19,wc1_19,wc2_19,wc3_19,wc4_19]=request.security("NSE:WIPRO",     "W",f_scan(24,1,mult_in),lookahead=barmerge.lookahead_off)
+
+// ══════════════════════════════════════════════════════════════
+// ALERT CONDITIONS
+// ══════════════════════════════════════════════════════════════
+_any_d = d01 or d02 or d03 or d04 or d05 or d06 or d07 or d08 or d09 or d10 or d11 or d12 or d13 or d14 or d15 or d16 or d17 or d18 or d19
+_any_w = w01 or w02 or w03 or w04 or w05 or w06 or w07 or w08 or w09 or w10 or w11 or w12 or w13 or w14 or w15 or w16 or w17 or w18 or w19
+
+alertcondition(_any_d, "Breakout Signal – Daily",  "🟢 Daily Breakout detected! Open BO SCAN D&W.")
+alertcondition(_any_w, "Breakout Signal – Weekly", "🟢 Weekly Breakout detected! Open BO SCAN D&W.")
+alertcondition(_any_d and _any_w, "Breakout Signal – D+W Confluence", "🔥 Daily + Weekly Breakout Confluence!")
+
+// ══════════════════════════════════════════════════════════════
+// TABLE SETUP
+// Columns (with show_cond=true, 12 cols):
+//  0=#  1=STOCK  2=D-ALL  3=D:C1  4=D:C2  5=D:C3  6=D:C4
+//  7=W-ALL  8=W:C1  9=W:C2  10=W:C3  11=W:C4
+// Columns (with show_cond=false, 4 cols):
+//  0=#  1=STOCK  2=D  3=W
+// ══════════════════════════════════════════════════════════════
+_ncols = show_cond ? 12 : 4
+var table tb = table.new(_tpos, _ncols, 25,
+     border_width=1, border_color=color.new(color.gray,70),
+     frame_width=2,  frame_color=color.new(#0d47a1, 20))
+
+// Helper: tick/cross cell
+f_bool_cell(tbl, col, row, val, sz) =>
+    _bg  = val ? C_GRN_BG : C_NO_BG
+    _txt = val ? "✔" : "✘"
+    _tc  = val ? C_GRN_TXT : C_RED_TXT
+    table.cell(tbl, col, row, _txt, text_color=_tc, bgcolor=_bg, text_size=sz)
+
+// Helper: signal badge
+f_sig_cell(tbl, col, row, val, sz) =>
+    _bg  = val ? C_GRN_BG : C_NO_BG
+    _txt = val ? "✅ PASS" : "✘ FAIL"
+    _tc  = val ? C_GRN_TXT : C_DIM
+    table.cell(tbl, col, row, _txt, text_color=_tc, bgcolor=_bg, text_size=sz)
+
+if barstate.islast
+    // ── Build sorted arrays ──
+    syms = array.from("RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","SBIN","BHARTIARTL","LT","BAJFINANCE","KOTAKBANK","HCLTECH","AXISBANK","MARUTI","SUNPHARMA","TITAN","TATAMOTORS","NTPC","WIPRO")
+    d_all  = array.from(d01,d02,d03,d04,d05,d06,d07,d08,d09,d10,d11,d12,d13,d14,d15,d16,d17,d18,d19)
+    w_all  = array.from(w01,w02,w03,w04,w05,w06,w07,w08,w09,w10,w11,w12,w13,w14,w15,w16,w17,w18,w19)
+    dc1_a  = array.from(dc1_01,dc1_02,dc1_03,dc1_04,dc1_05,dc1_06,dc1_07,dc1_08,dc1_09,dc1_10,dc1_11,dc1_12,dc1_13,dc1_14,dc1_15,dc1_16,dc1_17,dc1_18,dc1_19)
+    dc2_a  = array.from(dc2_01,dc2_02,dc2_03,dc2_04,dc2_05,dc2_06,dc2_07,dc2_08,dc2_09,dc2_10,dc2_11,dc2_12,dc2_13,dc2_14,dc2_15,dc2_16,dc2_17,dc2_18,dc2_19)
+    dc3_a  = array.from(dc3_01,dc3_02,dc3_03,dc3_04,dc3_05,dc3_06,dc3_07,dc3_08,dc3_09,dc3_10,dc3_11,dc3_12,dc3_13,dc3_14,dc3_15,dc3_16,dc3_17,dc3_18,dc3_19)
+    dc4_a  = array.from(dc4_01,dc4_02,dc4_03,dc4_04,dc4_05,dc4_06,dc4_07,dc4_08,dc4_09,dc4_10,dc4_11,dc4_12,dc4_13,dc4_14,dc4_15,dc4_16,dc4_17,dc4_18,dc4_19)
+    wc1_a  = array.from(wc1_01,wc1_02,wc1_03,wc1_04,wc1_05,wc1_06,wc1_07,wc1_08,wc1_09,wc1_10,wc1_11,wc1_12,wc1_13,wc1_14,wc1_15,wc1_16,wc1_17,wc1_18,wc1_19)
+    wc2_a  = array.from(wc2_01,wc2_02,wc2_03,wc2_04,wc2_05,wc2_06,wc2_07,wc2_08,wc2_09,wc2_10,wc2_11,wc2_12,wc2_13,wc2_14,wc2_15,wc2_16,wc2_17,wc2_18,wc2_19)
+    wc3_a  = array.from(wc3_01,wc3_02,wc3_03,wc3_04,wc3_05,wc3_06,wc3_07,wc3_08,wc3_09,wc3_10,wc3_11,wc3_12,wc3_13,wc3_14,wc3_15,wc3_16,wc3_17,wc3_18,wc3_19)
+    wc4_a  = array.from(wc4_01,wc4_02,wc4_03,wc4_04,wc4_05,wc4_06,wc4_07,wc4_08,wc4_09,wc4_10,wc4_11,wc4_12,wc4_13,wc4_14,wc4_15,wc4_16,wc4_17,wc4_18,wc4_19)
+
+    // ── Priority sort: D+W first, then D-only, then W-only, then skip if !show_all ──
+    ord_sym  = array.new_string(0)
+    ord_di   = array.new_int(0)   // original index for data lookup
+
+    // Pass 1: Both D and W
+    for i = 0 to 18
+        if array.get(d_all,i) and array.get(w_all,i)
+            array.push(ord_sym, array.get(syms,i)), array.push(ord_di, i)
+    // Pass 2: Daily only
+    for i = 0 to 18
+        if array.get(d_all,i) and not array.get(w_all,i)
+            array.push(ord_sym, array.get(syms,i)), array.push(ord_di, i)
+    // Pass 3: Weekly only
+    for i = 0 to 18
+        if not array.get(d_all,i) and array.get(w_all,i)
+            array.push(ord_sym, array.get(syms,i)), array.push(ord_di, i)
+    // Pass 4: No signal (only if show_all)
+    if show_all
+        for i = 0 to 18
+            if not array.get(d_all,i) and not array.get(w_all,i)
+                array.push(ord_sym, array.get(syms,i)), array.push(ord_di, i)
+
+    _nd = 0
+    _nw = 0
+    _nb = 0
+    for i = 0 to 18
+        if array.get(d_all,i)
+            _nd += 1
+        if array.get(w_all,i)
+            _nw += 1
+        if array.get(d_all,i) and array.get(w_all,i)
+            _nb += 1
+
+    // ── Title row (spans all columns) ──
+    _ttl = "⚡ BREAKOUT SCANNER  |  📅 Daily: " + str.tostring(_nd) + " signals   📆 Weekly: " + str.tostring(_nw) + " signals   🔥 Both: " + str.tostring(_nb)
+    table.cell(tb, 0, 0, _ttl, text_color=C_WHITE, bgcolor=C_TTL_BG, text_size=_tsz, text_halign=text.align_left)
+    for c = 1 to _ncols - 1
+        table.cell(tb, c, 0, "", bgcolor=C_TTL_BG)
+
+    // ── Legend row ──
+    _leg = "C1: 5-bar High > 120D High[6] × " + str.tostring(mult_in,"#.##") + "   C2: Close > Prev Close   C3: Vol > SMA20   C4: RSI > 50"
+    table.cell(tb, 0, 1, _leg, text_color=C_GOLD, bgcolor=C_NO_BG, text_size=size.tiny, text_halign=text.align_left)
+    for c = 1 to _ncols - 1
+        table.cell(tb, c, 1, "", bgcolor=C_NO_BG)
+
+    // ── Header row ──
+    if show_cond
+        table.cell(tb,  0, 2, "#",      text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  1, 2, "STOCK",  text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsz, text_halign=text.align_left)
+        table.cell(tb,  2, 2, "📅 DAILY",  text_color=C_GRN_TXT, bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  3, 2, "C1",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  4, 2, "C2",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  5, 2, "C3",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  6, 2, "C4",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  7, 2, "📆 WEEKLY", text_color=color.new(#ffd600,0), bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  8, 2, "C1",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb,  9, 2, "C2",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb, 10, 2, "C3",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb, 11, 2, "C4",     text_color=C_GOLD,  bgcolor=C_HDR_BG, text_size=_tsz)
+    else
+        table.cell(tb, 0, 2, "#",      text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb, 1, 2, "STOCK",  text_color=C_WHITE, bgcolor=C_HDR_BG, text_size=_tsz, text_halign=text.align_left)
+        table.cell(tb, 2, 2, "📅 DAILY",  text_color=C_GRN_TXT, bgcolor=C_HDR_BG, text_size=_tsz)
+        table.cell(tb, 3, 2, "📆 WEEKLY", text_color=color.new(#ffd600,0), bgcolor=C_HDR_BG, text_size=_tsz)
+
+    // ── Data rows ──
+    int total = array.size(ord_sym)
+    if total == 0
+        table.cell(tb, 0, 3, "— No signals found. Enable 'Show All' to see all stocks. —",
+             text_color=C_DIM, bgcolor=C_NO_BG, text_size=_tsz, text_halign=text.align_left)
+        for c = 1 to _ncols - 1
+            table.cell(tb, c, 3, "", bgcolor=C_NO_BG)
+    else
+        for k = 0 to math.min(total - 1, 20)
+            int row  = 3 + k
+            int idx  = array.get(ord_di, k)
+            string sym = array.get(ord_sym, k)
+            bool  dv = array.get(d_all, idx)
+            bool  wv = array.get(w_all, idx)
+
+            // Stock name color: 🔥 both, green D-only, yellow W-only, dim neither
+            color _sc = (dv and wv) ? C_GOLD : dv ? C_GRN_TXT : wv ? color.new(#ffd600,0) : C_DIM
+            color _nb_bg = C_NO_BG
+
+            table.cell(tb, 0, row, str.tostring(k+1), text_color=C_WHITE, bgcolor=_nb_bg, text_size=_tsz)
+            table.cell(tb, 1, row, (dv and wv) ? "🔥 "+sym : sym,
+                 text_color=_sc, bgcolor=_nb_bg, text_size=_tsz, text_halign=text.align_left)
+
+            if show_cond
+                f_sig_cell(tb, 2, row, dv, _tsz)
+                f_bool_cell(tb, 3, row, array.get(dc1_a,idx), _tsz)
+                f_bool_cell(tb, 4, row, array.get(dc2_a,idx), _tsz)
+                f_bool_cell(tb, 5, row, array.get(dc3_a,idx), _tsz)
+                f_bool_cell(tb, 6, row, array.get(dc4_a,idx), _tsz)
+                f_sig_cell(tb, 7, row, wv, _tsz)
+                f_bool_cell(tb, 8, row, array.get(wc1_a,idx), _tsz)
+                f_bool_cell(tb, 9, row, array.get(wc2_a,idx), _tsz)
+                f_bool_cell(tb,10, row, array.get(wc3_a,idx), _tsz)
+                f_bool_cell(tb,11, row, array.get(wc4_a,idx), _tsz)
+            else
+                f_sig_cell(tb, 2, row, dv, _tsz)
+                f_sig_cell(tb, 3, row, wv, _tsz)

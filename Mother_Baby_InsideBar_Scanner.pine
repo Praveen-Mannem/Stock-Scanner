@@ -333,23 +333,30 @@ else
 
 if _buy_sig
     _tdir := "LONG", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - _m_low[1], _atr * 0.5)
+    // Fix: use _m_low directly (var variable already holds mother bar low; [1] indexing is unreliable here)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(close - low, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(close - _m_low, _atr * 0.5)
     _tsl := close - _sl_d, _ttp1 := close + rr1*_sl_d, _ttp2 := close + rr2*_sl_d, _ttp3 := close + rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
     // BUY signal label — stored in _sig_lbl so outcome can be updated later
     if show_labels
-        _buy_tip = "\ud83d\udfe2 BUY SIGNAL | ACTIVE"
+        _buy_tip = "🟢 BUY SIGNAL | ACTIVE"
         _buy_tip := _buy_tip + "\nEntry : " + _fmt(close)
         _buy_tip := _buy_tip + "\nSL    : " + _fmt(_tsl)
         _buy_tip := _buy_tip + "\nTP1   : " + _fmt(_ttp1)
         _buy_tip := _buy_tip + "\nTP2   : " + _fmt(_ttp2)
         _buy_tip := _buy_tip + "\nTP3   : " + _fmt(_ttp3)
-        _buy_lbl_txt = "BUY ▲ ACTIVE"
+        // Show key levels directly on the label — visible without hovering
+        _buy_lbl_txt = "🟢 BUY" +
+             "\nE: "  + _fmt(close) +
+             "\nSL: " + _fmt(_tsl)  +
+             "\nT1: " + _fmt(_ttp1) +
+             "\nT2: " + _fmt(_ttp2) +
+             "\nT3: " + _fmt(_ttp3)
         _sig_lbl_txt := _buy_lbl_txt
         _sig_lbl := label.new(bar_index, low, _buy_lbl_txt,
              yloc=yloc.belowbar, style=label.style_label_up,
-             color=color.lime, textcolor=color.black, size=size.small,
+             color=color.lime, textcolor=color.black, size=size.normal,
              tooltip=_buy_tip)
     if show_zones
         _del_zones()
@@ -371,23 +378,30 @@ if _buy_sig
 
 if _sell_sig
     _tdir := "SHORT", _tent := close
-    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(_m_high[1] - close, _atr * 0.5)
+    // Fix: use _m_high directly (var variable already holds mother bar high; [1] indexing is unreliable here)
+    _sl_d = sl_source == "Breakout Candle Low/High" ? math.max(high - close, _atr * 0.5) : sl_source == "ATR Multiplier" ? sl_mult * _atr : math.max(_m_high - close, _atr * 0.5)
     _tsl := close + _sl_d, _ttp1 := close - rr1*_sl_d, _ttp2 := close - rr2*_sl_d, _ttp3 := close - rr3*_sl_d
     _tp1hit := false, _tp2hit := false, _tp3hit := false, _slhit := false
     _del_prep()
     // SELL signal label — stored in _sig_lbl so outcome can be updated later
     if show_labels
-        _sell_tip = "\ud83d\udd34 SELL SIGNAL | ACTIVE"
+        _sell_tip = "🔴 SELL SIGNAL | ACTIVE"
         _sell_tip := _sell_tip + "\nEntry : " + _fmt(close)
         _sell_tip := _sell_tip + "\nSL    : " + _fmt(_tsl)
         _sell_tip := _sell_tip + "\nTP1   : " + _fmt(_ttp1)
         _sell_tip := _sell_tip + "\nTP2   : " + _fmt(_ttp2)
         _sell_tip := _sell_tip + "\nTP3   : " + _fmt(_ttp3)
-        _sell_lbl_txt = "SELL ▼ ACTIVE"
+        // Show key levels directly on the label — visible without hovering
+        _sell_lbl_txt = "🔴 SELL" +
+             "\nE: "  + _fmt(close) +
+             "\nSL: " + _fmt(_tsl)  +
+             "\nT1: " + _fmt(_ttp1) +
+             "\nT2: " + _fmt(_ttp2) +
+             "\nT3: " + _fmt(_ttp3)
         _sig_lbl_txt := _sell_lbl_txt
         _sig_lbl := label.new(bar_index, high, _sell_lbl_txt,
              yloc=yloc.abovebar, style=label.style_label_down,
-             color=color.red, textcolor=color.white, size=size.small,
+             color=color.red, textcolor=color.white, size=size.normal,
              tooltip=_sell_tip)
     if show_zones
         _del_zones()
@@ -436,7 +450,7 @@ if _tdir != "NONE"
         if _tp1hit and not _slhit and not na(_sig_lbl)
             label.set_text(_sig_lbl, "BUY ✅ TP HIT")
             label.set_color(_sig_lbl, color.new(color.teal, 10))
-        // ── FIXED: Close only on SL or TP1, NOT on EMA flip
+        // ── Close only on SL or TP1, NOT on EMA flip
         if low <= _tsl or high >= _ttp1
             _del_zones(), _tdir := "NONE"
 
@@ -458,7 +472,7 @@ if _tdir != "NONE"
         if _tp1hit and not _slhit and not na(_sig_lbl)
             label.set_text(_sig_lbl, "SELL ✅ TP HIT")
             label.set_color(_sig_lbl, color.new(color.teal, 10))
-        // ── FIXED: Close only on SL or TP1, NOT on EMA flip
+        // ── Close only on SL or TP1, NOT on EMA flip
         if high >= _tsl or low <= _ttp1
             _del_zones(), _tdir := "NONE"
 
